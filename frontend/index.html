@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Contabilità</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Libreria per i grafici -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <h1 style="margin: 0;">Consuntivo</h1>
+                <select id="selettore-anno" style="padding: 5px 10px; font-size: 1.2em; font-weight: bold; background-color: #333; color: #fff; border: 1px solid #555; border-radius: 5px; cursor: pointer;">
+                    <option value="2020">2020</option>
+                    <option value="2021">2021</option>
+                    <option value="2022">2022</option>
+                    <option value="2023">2023</option>
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                </select>
+            </div>
+            <div id="status-connessione">Connessione al server...</div>
+        </header>
+
+        <main>
+        
+            <!-- NUOVA CARD: Grafico Storico -->
+            <div class="card">
+                <h2>Andamento Storico dei Conti</h2>
+                <!-- Il contenitore con altezza fissa è fondamentale per rendere il grafico responsive -->
+                <div style="position: relative; height: 400px; width: 100%;">
+                    <canvas id="storicoChart"></canvas>
+                </div>
+            </div>
+
+            <!-- NUOVA CARD: Consuntivo Mensile -->
+            <div class="card" style="margin-top: 20px;">
+                <h2>Conto Economico Mensile</h2>
+                <div style="overflow-x: auto;">
+                    <table id="tabella-pnl" style="width: 100%; border-collapse: collapse; text-align: right;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #555;">
+                                <th style="text-align: left; padding: 10px;">Voce</th>
+                                <th>Gen</th>
+                                <th>Feb</th>
+                                <th>Mar</th>
+                                <th>Apr</th>
+                                <th>Mag</th>
+                                <th>Giu</th>
+                                <th>Lug</th>
+                                <th>Ago</th>
+                                <th>Set</th>
+                                <th>Ott</th>
+                                <th>Nov</th>
+                                <th>Dic</th>
+                                <th style="font-weight: bold; color: #fff;">TOT</th>
+                            </tr>
+                        </thead>
+                        <tbody id="corpo-tabella-pnl">
+                            <!-- Le righe verranno generate da JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- NUOVO BLOCCO: Gestioni e Posizioni Aperte affiancate -->
+            <div style="display: flex; gap: 20px; margin-top: 20px;">
+                
+                <!-- Card: Marginalità per Gestione -->
+                <div class="card" style="flex: 1; overflow-x: auto;">
+                    <h2>Marginalità per Gestione</h2>
+                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #555;">
+                                <th style="padding: 10px;">Gestione</th>
+                                <th>Ricavi</th>
+                                <th>Costi</th>
+                                <th>Utile</th>
+                                <th>Margine</th>
+                            </tr>
+                        </thead>
+                        <tbody id="corpo-gestioni">
+                            <!-- Popolato da JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Card: Posizioni Aperte -->
+                <div class="card" style="flex: 1;">
+                    <h2>Posizioni Aperte</h2>
+                    <ul id="lista-posizioni">
+                        <!-- Popolato da JS -->
+                    </ul>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

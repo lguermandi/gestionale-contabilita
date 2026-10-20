@@ -1,10 +1,10 @@
 const axios = require('axios');
-require('dotenv').config();
+const config = require('../config');
 
 async function fetchRawData(anno) {
     const maxRetries = 3;
     const timeout = 10000; // 10s
-    const url = `${process.env.GAS_WEBHOOK_URL}?anno=${anno}`;
+    const url = `${config.gasWebhookUrl}?anno=${anno}`;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {

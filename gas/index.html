@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Contabilità</title>
+  <style><?!= include_('Styles'); ?></style>
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card">
+      <h1>Dashboard Contabilità</h1>
+      <p>Accedi per visualizzare i tuoi dati contabili.</p>
+      <label for="username">Nome utente</label>
+      <input id="username" name="username" type="text" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button id="login-button" type="submit">Accedi</button>
+      <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <div id="app-shell" class="container" hidden>
+    <header>
+      <div class="header-title">
+        <h1>Consuntivo</h1>
+        <select id="selettore-anno" aria-label="Anno del consuntivo">
+          <option value="2020">2020</option>
+          <option value="2021">2021</option>
+          <option value="2022">2022</option>
+          <option value="2023">2023</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+          <option value="2026" selected>2026</option>
+          <option value="2027">2027</option>
+        </select>
+      </div>
+      <div class="header-actions">
+        <span id="status-connessione" role="status">Pronto</span>
+        <button id="logout-button" class="secondary-button" type="button">Esci</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Andamento Storico dei Conti</h2>
+        <div class="chart-container"><svg id="storico-chart" role="img" aria-label="Andamento storico dei saldi"></svg></div>
+        <div id="storico-legend" class="chart-legend"></div>
+      </section>
+
+      <section class="card section-spaced">
+        <h2>Conto Economico Mensile</h2>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th class="left">Voce</th>
+                <th>Gen</th><th>Feb</th><th>Mar</th><th>Apr</th><th>Mag</th><th>Giu</th>
+                <th>Lug</th><th>Ago</th><th>Set</th><th>Ott</th><th>Nov</th><th>Dic</th><th>TOT</th>
+              </tr>
+            </thead>
+            <tbody id="corpo-tabella-pnl"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="report-grid section-spaced">
+        <section class="card table-container">
+          <h2>Marginalità per Gestione</h2>
+          <table>
+            <thead>
+              <tr><th class="left">Gestione</th><th>Ricavi</th><th>Costi</th><th>Utile</th><th>Margine</th></tr>
+            </thead>
+            <tbody id="corpo-gestioni"></tbody>
+          </table>
+        </section>
+        <section class="card">
+          <h2>Posizioni Aperte</h2>
+          <ul id="lista-posizioni"></ul>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script><?!= include_('Client'); ?></script>
+</body>
+</html>

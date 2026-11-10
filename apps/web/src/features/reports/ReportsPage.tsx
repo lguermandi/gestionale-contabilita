@@ -32,12 +32,39 @@ export function ReportsPage() {
       {loading && <p className="mb-4 text-sm text-stone-500">Aggiornamento dati…</p>}
 
       {view === 'sp' ? (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <BalanceColumn title="Attività" rows={statoPatrimoniale.attivita.map((account) => ({ conto: account.conto, saldo: account.saldo }))} total={statoPatrimoniale.totaleAttivita} />
-          <BalanceColumn title="Passività e patrimonio netto" rows={statoPatrimoniale.passivita} total={statoPatrimoniale.totalePassivita} />
-          <p className={`lg:col-span-2 text-sm font-medium ${Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) < 0.01 ? 'text-emerald-800' : 'text-rose-700'}`}>
-            {Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) < 0.01 ? 'Stato Patrimoniale quadrato' : `Differenza da verificare: ${euro.format(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita)}`}
-          </p>
+        <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-stone-200 bg-stone-50 px-5 py-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-stone-500">Prospetto contabile</p>
+              <h2 className="mt-1 text-lg font-semibold text-stone-900">Stato Patrimoniale</h2>
+            </div>
+            <span className="rounded-full border border-stone-200 bg-white px-3 py-1 text-sm font-medium text-stone-600">Esercizio {year}</span>
+          </div>
+          <div className="grid lg:grid-cols-2">
+            <BalanceSide
+              title="Attività"
+              subtitle="Impieghi"
+              rows={statoPatrimoniale.attivita.map((account) => ({ conto: account.conto, saldo: account.saldo }))}
+              total={statoPatrimoniale.totaleAttivita}
+              side="left"
+            />
+            <BalanceSide
+              title="Passività e patrimonio netto"
+              subtitle="Fonti"
+              rows={statoPatrimoniale.passivita}
+              total={statoPatrimoniale.totalePassivita}
+              side="right"
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4">
+            <p className={`flex items-center gap-2 text-sm font-semibold ${Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) < 0.01 ? 'text-emerald-800' : 'text-rose-700'}`}>
+              <span aria-hidden="true" className={`h-2 w-2 rounded-full ${Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) < 0.01 ? 'bg-emerald-600' : 'bg-rose-600'}`} />
+              {Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) < 0.01 ? 'Stato Patrimoniale quadrato' : 'Stato Patrimoniale da verificare'}
+            </p>
+            {Math.abs(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita) >= 0.01 && (
+              <p className="text-sm text-rose-700">Differenza: {euro.format(statoPatrimoniale.totaleAttivita - statoPatrimoniale.totalePassivita)}</p>
+            )}
+          </div>
         </div>
       ) : view === 'ce' ? (
         <section className="border border-stone-200 bg-white">
@@ -74,22 +101,45 @@ export function ReportsPage() {
   )
 }
 
-function BalanceColumn({
+function BalanceSide({
   title,
+  subtitle,
   rows,
   total,
+  side,
 }: {
   title: string
+  subtitle: string
   rows: Array<{ conto: string; saldo: number }>
   total: number
+  side: 'left' | 'right'
 }) {
   return (
-    <section className="border border-stone-200 bg-white">
-      <h2 className="border-b border-stone-200 px-5 py-4 font-semibold">{title}</h2>
-      <div className="divide-y divide-stone-100">
-        {rows.length ? rows.map((row) => <div key={row.conto} className="flex justify-between gap-4 px-5 py-3 text-sm"><span>{row.conto}</span><span className="shrink-0 tabular-nums">{euro.format(row.saldo)}</span></div>) : <p className="px-5 py-8 text-sm text-stone-500">Nessun saldo da esporre.</p>}
+    <section className={`${side === 'right' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
+      <div className="flex min-h-20 items-center justify-between gap-3 border-b border-stone-200 bg-emerald-50/70 px-5 py-4">
+        <div>
+          <h3 className="font-semibold text-stone-900">{title}</h3>
+          <p className="mt-1 text-xs font-medium uppercase tracking-wider text-stone-500">{subtitle}</p>
+        </div>
+        <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-900/10">
+          {side === 'left' ? 'Dare' : 'Avere'}
+        </span>
       </div>
-      <div className="flex justify-between border-t-2 border-stone-300 bg-stone-50 px-5 py-4 text-sm font-semibold"><span>Totale</span><span className="tabular-nums">{euro.format(total)}</span></div>
+      <div className="border-b border-stone-200 bg-stone-50/70 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-stone-500">
+        Sezione {title}
+      </div>
+      <div className="min-h-36 divide-y divide-stone-100">
+        {rows.length ? rows.map((row) => (
+          <div key={row.conto} className="flex min-h-11 items-center justify-between gap-4 px-5 py-2.5 text-sm hover:bg-stone-50">
+            <span className="text-stone-700">{row.conto}</span>
+            <span className="shrink-0 text-right font-medium tabular-nums text-stone-800">{euro.format(row.saldo)}</span>
+          </div>
+        )) : <p className="px-5 py-8 text-sm text-stone-500">Nessun saldo da esporre.</p>}
+      </div>
+      <div className="flex min-h-14 items-center justify-between gap-4 border-t-2 border-amber-300 bg-amber-50 px-5 py-3 text-sm font-bold text-stone-900">
+        <span>Totale {side === 'left' ? 'attività' : 'passività e patrimonio netto'}</span>
+        <span className="tabular-nums">{euro.format(total)}</span>
+      </div>
     </section>
   )
 }

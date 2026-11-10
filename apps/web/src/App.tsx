@@ -163,7 +163,7 @@ function App() {
   return Capacitor.isNativePlatform() ? (
     <HashRouter><AppShell /></HashRouter>
   ) : (
-    <BrowserRouter><AppShell /></BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL}><AppShell /></BrowserRouter>
   )
 }
 

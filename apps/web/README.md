@@ -1,75 +1,28 @@
-# React + TypeScript + Vite
+# Gestionale Contabile
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Avvio locale
 
-Currently, two official plugins are available:
+Dalla radice del repository:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm ci
+npm run dev --workspace apps/web
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+La build web si verifica con `npm run build --workspace apps/web`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Pubblicazione
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Il workflow `Deploy frontend to GitHub Pages` pubblica la build web su
+<https://lguermandi.github.io/gestionale-contabilita/> a ogni push su `main`
+che modifica `apps/web`, oltre che su richiesta manuale.
 
-```
+Il workflow `Build Android APK` genera un APK debug a ogni push su `main` che
+modifica l'app. Per scaricarlo, aprire la relativa esecuzione in **Actions** e
+scaricare l'artifact `gestionale-contabile-debug`. L'artifact è conservato per
+90 giorni; è un APK debug, non un pacchetto firmato per il Play Store.
+
+GitHub Pages ospita il client statico. Per usare sincronizzazione e accesso a
+GAS anche dal sito pubblicato serve un backend raggiungibile pubblicamente e la
+variabile GitHub Actions `VITE_API_BASE_URL` impostata al suo URL. In sua
+assenza, le funzioni che richiedono il backend non sono disponibili sul sito.

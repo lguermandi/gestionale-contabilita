@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Gestionale Contabile</string>
+    <string name="title_activity_main">Gestionale Contabile</string>
+    <string name="package_name">it.gestionalecontabilita.app</string>
+    <string name="custom_url_scheme">it.gestionalecontabilita.app</string>
+</resources>

@@ -15,9 +15,21 @@ La dashboard viene eseguita come web app di Google Apps Script, legge i fogli an
 
 Per aggiornare il codice, esegui `clasp push` dalla cartella del progetto locale e crea una nuova versione del deployment esistente. I file `.clasp.json` e `Config.js` contengono riferimenti al progetto e ai dati personali: non aggiungerli al repository.
 
+## Bridge API per React e Node
+
+La nuova app React non chiama direttamente il deployment GAS dal browser. Il backend Node inoltra le richieste al suo URL `/exec`, configurato in `GAS_WEBHOOK_URL` nel file `.env` del backend. In locale, Vite inoltra `/api` al backend su `http://localhost:3000`.
+
+Il deployment deve includere le azioni JSON `login`, `getTransactions`, `appendTransaction`, `getInvoices` e `issueInvoice` implementate in `API.js`. Dopo `clasp push`, crea una nuova versione del deployment Web App. L’accesso usa le stesse credenziali GAS documentate sopra; il token di sessione resta in memoria nel client e scade dopo sei ore.
+
+I fogli annuali esistenti restano l’entità privata; le registrazioni aziendali sono salvate in fogli separati `AZIENDA_<anno>`, creati al primo inserimento. Le fatture emesse sono registrate nel foglio `Fatture` con numero progressivo per anno, payload JSON e stato. Ogni registrazione usa la colonna B, ignorata dal parser contabile, per l’ID idempotente. Il backend ricalcola importi e scrittura contabile, poi crea l’eventuale foglio aziendale.
+
+Il PDF generato è un documento di cortesia e non è una fattura elettronica XML trasmessa al Sistema di Interscambio (SDI). Prima di usarlo per adempimenti fiscali, verifica aliquote, ritenute, contributi e trattamento applicabile con il commercialista; il piano dei conti aziendale va configurato nelle Impostazioni.
+
+Per Android e per un deployment web remoto, imposta `VITE_API_BASE_URL` durante la build a un URL backend raggiungibile dal dispositivo, ad esempio `https://api.example.it/api`. Configura inoltre `ALLOWED_ORIGINS` sul backend per l’origine web effettiva. Non inserire password GAS o chiavi server in variabili `VITE_*`.
+
 ## Protezioni
 
-- Le richieste dati passano solo tramite `google.script.run` e richiedono un token di sessione non condiviso nell'URL.
+- La pagina GAS legacy usa `google.script.run`; React/Node usa le azioni JSON POST. Le operazioni contabili richiedono entrambe un token di sessione non condiviso nell'URL.
 - Le sessioni scadono dopo sei ore e vengono invalidate con **Esci**.
 - La password non è inclusa nel codice; viene derivata con PBKDF2-HMAC-SHA256 e 60.000 iterazioni.
 - Le risposte contabili non sono memorizzate nella cache.

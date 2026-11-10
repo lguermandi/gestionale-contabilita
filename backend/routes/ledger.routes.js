@@ -4,6 +4,76 @@ const { calculateBalances, generateOpenPositions } = require('../domain/reports'
 
 const router = express.Router();
 
+router.get('/ledger/transactions/:anno', async (req, res) => {
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!token) return res.status(401).json({ error: 'Accedi a Google Apps Script per leggere i dati.' });
+    try {
+        const entity = req.query.entity === 'business' ? 'business' : 'private';
+        const transactions = await ledgerService.getTransactions(req.params.anno, token, entity);
+        return res.json({ totale_transazioni: transactions.length, dati: transactions });
+    } catch (error) {
+        console.error('Errore durante il caricamento delle registrazioni GAS:', error.message);
+        const status = error.status === 401 ? 401 : error.status === 400 ? 400 : 502;
+        return res.status(status).json({ error: error.message });
+    }
+});
+
+router.post('/auth/login', async (req, res) => {
+    const { username, password } = req.body || {};
+    if (typeof username !== 'string' || typeof password !== 'string' || username.length > 128 || password.length > 128) {
+        return res.status(400).json({ error: 'Credenziali non valide.' });
+    }
+    try {
+        const session = await ledgerService.authenticate(username, password);
+        return res.json(session);
+    } catch (error) {
+        console.error('Errore durante l’autenticazione GAS:', error.message);
+        return res.status(error.status === 401 ? 401 : 502).json({ error: 'Accesso non riuscito.' });
+    }
+});
+
+router.post('/transactions', async (req, res) => {
+    const { token, transaction, entity } = req.body || {};
+    if (typeof token !== 'string' || !transaction || typeof transaction !== 'object') {
+        return res.status(400).json({ error: 'Sessione o registrazione mancanti.' });
+    }
+    try {
+        const result = await ledgerService.appendTransaction(token, transaction, entity === 'business' ? 'business' : 'private');
+        return res.status(result.duplicate ? 200 : 201).json(result);
+    } catch (error) {
+        console.error('Errore durante il salvataggio della registrazione:', error.message);
+        return res.status(error.status === 401 ? 401 : 400).json({ error: error.message });
+    }
+});
+
+router.get('/invoices/:anno', async (req, res) => {
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!token) return res.status(401).json({ error: 'Accedi a Google Apps Script per leggere le fatture.' });
+    try {
+        const invoices = await ledgerService.getInvoices(token, req.params.anno);
+        return res.json({ fatture: invoices });
+    } catch (error) {
+        console.error('Errore durante il caricamento delle fatture:', error.message);
+        const status = error.status === 401 ? 401 : error.status === 400 ? 400 : 502;
+        return res.status(status).json({ error: error.message });
+    }
+});
+
+router.post('/invoices', async (req, res) => {
+    const { token, invoice } = req.body || {};
+    if (typeof token !== 'string' || !invoice || typeof invoice !== 'object') {
+        return res.status(400).json({ error: 'Sessione o fattura mancanti.' });
+    }
+    try {
+        const result = await ledgerService.issueInvoice(token, invoice);
+        return res.status(result.duplicate ? 200 : 201).json(result);
+    } catch (error) {
+        console.error('Errore durante l’emissione della fattura:', error.message);
+        const status = error.status === 401 ? 401 : error.status === 400 ? 400 : 502;
+        return res.status(status).json({ error: error.message });
+    }
+});
+
 // Dati grezzi (per debug)
 router.get('/raw-data/:anno', async (req, res) => {
     const anno = req.params.anno;

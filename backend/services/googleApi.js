@@ -25,4 +25,21 @@ async function fetchRawData(anno) {
     }
 }
 
-module.exports = { fetchRawData };
+async function postGasAction(action, payload) {
+    if (!config.gasWebhookUrl) {
+        throw new Error('GAS_WEBHOOK_URL non configurato');
+    }
+
+    const response = await axios.post(config.gasWebhookUrl, { action, ...payload }, {
+        timeout: 15000,
+        headers: { 'Content-Type': 'application/json' }
+    });
+    if (!response.data || response.data.status !== 200) {
+        const error = new Error(response.data?.error || 'Risposta non valida da Google Apps Script');
+        error.status = response.data?.status || response.status;
+        throw error;
+    }
+    return response.data.data;
+}
+
+module.exports = { fetchRawData, postGasAction };

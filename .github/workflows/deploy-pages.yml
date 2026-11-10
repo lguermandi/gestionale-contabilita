@@ -43,7 +43,7 @@ jobs:
         run: npm run build --workspace apps/web
         env:
           GITHUB_PAGES: 'true'
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec
 
       - name: Support client-side routes
         run: cp apps/web/dist/index.html apps/web/dist/404.html

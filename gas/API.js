@@ -8,20 +8,20 @@ function doGet() {
 function doPost(event) {
   let action = '';
   try {
-    const request = JSON.parse(event.postData.contents || '{}');
-    action = request.action;
+    const payload = JSON.parse(event.postData.contents || '{}');
+    action = payload.action;
     let data;
 
-    if (request.action === 'login') {
-      data = login(request.username, request.password);
-    } else if (request.action === 'getTransactions') {
-      data = getTransactions_(request.token, request.anno, request.entity);
-    } else if (request.action === 'appendTransaction') {
-      data = appendTransaction_(request.token, request.transaction, request.entity);
-    } else if (request.action === 'getInvoices') {
-      data = getInvoices_(request.token, request.anno);
-    } else if (request.action === 'issueInvoice') {
-      data = issueInvoice_(request.token, request.invoice);
+    if (payload.action === 'login') {
+      data = login(payload.username, payload.password);
+    } else if (payload.action === 'getTransactions') {
+      data = getTransactions_(payload.token, payload.anno, payload.entity);
+    } else if (payload.action === 'appendTransaction') {
+      data = appendTransaction_(payload.token, payload.transaction, payload.entity);
+    } else if (payload.action === 'getInvoices') {
+      data = getInvoices_(payload.token, payload.anno);
+    } else if (payload.action === 'issueInvoice') {
+      data = issueInvoice_(payload.token, payload.invoice);
     } else {
       return jsonResponse_({ status: 400, error: 'Azione non supportata.' });
     }

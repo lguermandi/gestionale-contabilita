@@ -114,3 +114,4 @@ function sha256Hex_(value) {
     Utilities.Charset.UTF_8
   ).map(byte => (byte & 0xff).toString(16).padStart(2, '0')).join('');
 }
+

@@ -3,9 +3,11 @@ import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 're
 import { Capacitor } from '@capacitor/core'
 import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { buildAccountingReports } from './domain/accounting'
+import { OfflineSyncController } from './offline/OfflineSyncController'
 import { loginToGas } from './api/ledgerApi'
 import { useGasSessionStore } from './stores/gasSessionStore'
 import { useLedgerStore } from './stores/ledgerStore'
+import { useOfflineSyncStore } from './stores/offlineSyncStore'
 import { useProfileStore } from './stores/profileStore'
 
 const navigation = [
@@ -80,6 +82,9 @@ function AppShell() {
   const transactions = useLedgerStore((state) => state.transactions)
   const refresh = useLedgerStore((state) => state.refresh)
   const ledgerError = useLedgerStore((state) => state.error)
+  const online = useOfflineSyncStore((state) => state.online)
+  const syncing = useOfflineSyncStore((state) => state.syncing)
+  const pending = useOfflineSyncStore((state) => state.pending)
   const token = useGasSessionStore((state) => state.token)
   const reports = useMemo(() => buildAccountingReports(transactions), [transactions])
   const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() + 1 - index)
@@ -93,6 +98,7 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 md:flex">
+      <OfflineSyncController />
       <aside className="border-b border-stone-200 bg-white md:min-h-screen md:w-64 md:border-b-0 md:border-r">
         <div className="flex h-16 items-center gap-3 px-5 md:h-20">
           <span className="grid size-9 place-items-center bg-emerald-800 text-sm font-bold text-white">GC</span>
@@ -126,7 +132,7 @@ function AppShell() {
                 {years.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
-            <span className="hidden text-xs text-stone-500 lg:inline" role="status">{ledgerError ? 'Dati non aggiornati' : 'Backend contabile'}</span>
+            <span className="text-xs text-stone-500" role="status">{syncing ? 'Sincronizzazione…' : online ? (pending ? `${pending} in coda` : ledgerError ? 'Dati non aggiornati' : 'Online') : `Offline · ${pending} in coda`}</span>
           </div>
           <label className="flex items-center gap-3 text-sm">
             <span className="hidden text-stone-600 sm:inline">Profilo</span>

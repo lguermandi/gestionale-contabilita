@@ -27,10 +27,17 @@ Il PDF generato è un documento di cortesia e non è una fattura elettronica XML
 
 Per Android e per un deployment web remoto, imposta `VITE_API_BASE_URL` durante la build a un URL backend raggiungibile dal dispositivo, ad esempio `https://api.example.it/api`. Configura inoltre `ALLOWED_ORIGINS` sul backend per l’origine web effettiva. Non inserire password GAS o chiavi server in variabili `VITE_*`.
 
+## Registrazioni offline Android
+
+La web app salva ogni nuova scrittura in IndexedDB tramite Dexie prima di tentare la sincronizzazione, con stato `pending`, entità e anno. Quando il plugin Capacitor Network segnala il ritorno online, il browser torna online, l’app rientra in primo piano o viene effettuato il login GAS, le scritture pending vengono inviate in ordine al backend. Dopo la conferma diventano `synced`; in caso di errore restano in coda per un tentativo successivo. Lo stesso ID usato come chiave locale è conservato nella colonna B del foglio, rendendo il retry idempotente.
+
+Il login è richiesto solo per sincronizzare, non per inserire offline. La coda resta sul dispositivo finché non viene sincronizzata; cancellare i dati dell’app o del browser prima del sync può eliminarla. Dopo aver aggiunto o aggiornato plugin nativi, esegui `npx cap sync android` da `apps/web`.
+
 ## Protezioni
 
 - La pagina GAS legacy usa `google.script.run`; React/Node usa le azioni JSON POST. Le operazioni contabili richiedono entrambe un token di sessione non condiviso nell'URL.
 - Le sessioni scadono dopo sei ore e vengono invalidate con **Esci**.
+- Le credenziali GAS non sono persistite; il token di sessione resta in memoria. Le scritture offline sono invece conservate localmente in IndexedDB fino alla sincronizzazione.
 - La password non è inclusa nel codice; viene derivata con PBKDF2-HMAC-SHA256 e 60.000 iterazioni.
 - Le risposte contabili non sono memorizzate nella cache.
 - Il deployment esegue come proprietario: proteggi l'accesso editor al progetto Apps Script e al foglio Google.

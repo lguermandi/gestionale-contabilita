@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { saveTransaction } from '../../api/ledgerApi'
 import {
   validateTransaction,
   type LedgerMovement,
   type LedgerTransaction,
 } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
+import { queueTransaction } from '../../offline/offlineLedger'
+import { useOfflineSyncStore } from '../../stores/offlineSyncStore'
 
 interface DraftMovement {
   key: string
@@ -53,7 +54,7 @@ export function TransactionForm({
   onSaved: () => void
 }) {
   const token = useGasSessionStore((state) => state.token)
-  const clearToken = useGasSessionStore((state) => state.clearToken)
+  const online = useOfflineSyncStore((state) => state.online)
   const [date, setDate] = useState(() => localDate(year))
   const [description, setDescription] = useState('')
   const [movements, setMovements] = useState([newMovement(), newMovement()])
@@ -79,11 +80,6 @@ export function TransactionForm({
     if (date.slice(0, 4) !== String(year)) validationErrors.push(`La data deve appartenere all’esercizio ${year}.`)
     setErrors(validationErrors)
     if (validationErrors.length) return
-    if (!token) {
-      setMessage('Accedi a GAS prima di salvare la registrazione.')
-      return
-    }
-
     setSaving(true)
     try {
       const record: LedgerTransaction = {
@@ -91,14 +87,17 @@ export function TransactionForm({
         id: createId(),
         totale: totalDebit,
       }
-      const result = await saveTransaction(token, record, entity)
-      setMessage(result.duplicate ? 'Registrazione già presente: nessun duplicato creato.' : 'Registrazione salvata su Google Sheets.')
+      await queueTransaction(record, entity)
+      setMessage(token && online
+        ? 'Registrazione salvata in locale; sincronizzazione avviata.'
+        : 'Registrazione salvata sul dispositivo, in attesa di rete e accesso GAS.')
+      window.dispatchEvent(new Event('accounting:sync-request'))
       setDescription('')
       setMovements([newMovement(), newMovement()])
+      setErrors([])
       onSaved()
     } catch (error) {
-      if (error instanceof Error && error.message.includes('SESSION_EXPIRED')) clearToken()
-      setMessage(error instanceof Error ? error.message : 'Salvataggio non riuscito.')
+      setMessage(error instanceof Error ? error.message : 'Salvataggio locale non riuscito.')
     } finally {
       setSaving(false)
     }
@@ -118,7 +117,7 @@ export function TransactionForm({
         <p className="mt-2 text-sm text-stone-600">Ogni registrazione deve quadrare prima di essere inviata al foglio annuale.</p>
       </div>
 
-      {!token && <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Accedi a GAS dalla barra superiore per leggere e salvare le registrazioni.</p>}
+      {!token && <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Puoi registrare offline: i movimenti resteranno in coda fino all’accesso a GAS e al ripristino della rete.</p>}
 
       <form onSubmit={handleSave} className="space-y-5">
         <div className="grid gap-4 border border-stone-200 bg-white p-5 sm:grid-cols-[200px_1fr]">

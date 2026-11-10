@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { fetchTransactions } from '../api/ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
+import { getLocalTransactions, type LedgerEntity } from '../offline/offlineLedger'
 import { useGasSessionStore } from './gasSessionStore'
 
 interface LedgerState {
@@ -9,7 +10,7 @@ interface LedgerState {
   loading: boolean
   error: string | null
   setSelectedYear: (year: number) => void
-  refresh: (year?: number, token?: string | null, entity?: 'private' | 'business') => Promise<void>
+  refresh: (year?: number, token?: string | null, entity?: LedgerEntity) => Promise<void>
 }
 
 let latestRequest = 0
@@ -23,19 +24,25 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   refresh: async (requestedYear, token, entity = 'private') => {
     const requestId = ++latestRequest
     const year = requestedYear ?? get().selectedYear
+    const localRecords = await getLocalTransactions(year, entity)
+    const localTransactions = localRecords.map((record) => record.transaction)
     if (!token) {
-      set({ transactions: [], loading: false, error: null })
+      if (requestId === latestRequest) set({ transactions: localTransactions, loading: false, error: null })
       return
     }
     set({ loading: true, error: null })
     try {
       const transactions = await fetchTransactions(year, token, entity)
-      if (requestId === latestRequest) set({ transactions })
+      if (requestId === latestRequest) {
+        const merged = new Map(transactions.map((transaction) => [transaction.id, transaction]))
+        localTransactions.forEach((transaction) => merged.set(transaction.id, transaction))
+        set({ transactions: [...merged.values()] })
+      }
     } catch (error) {
       if (requestId === latestRequest) {
         const message = error instanceof Error ? error.message : 'Impossibile caricare i dati contabili.'
         if (message.includes('SESSION_EXPIRED')) useGasSessionStore.getState().clearToken()
-        set({ transactions: [], error: message })
+        set({ transactions: localTransactions, error: message })
       }
     } finally {
       if (requestId === latestRequest) set({ loading: false })

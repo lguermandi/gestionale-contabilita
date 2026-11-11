@@ -72,4 +72,18 @@ describe('classificazione dello stato patrimoniale', () => {
     })
     expect(findAccount(report.liability, 'Titoli di debito pubblico')).toBeUndefined()
   })
+
+  it('colloca rateo e risconto passivi alla voce D dello stato patrimoniale', () => {
+    const report = buildBalanceSheetSections([
+      { conto: 'rateo passivo', saldo: -2 },
+      { conto: 'risconto passivo', saldo: -200 },
+    ], [])
+
+    const debts = report.liability[2].subsections.flatMap((subsection) => subsection.rows)
+    expect(debts).toHaveLength(0)
+    expect(report.liability[3].subsections[0].rows).toEqual([
+      { conto: 'rateo passivo', corrente: 2, precedente: 0 },
+      { conto: 'risconto passivo', corrente: 200, precedente: 0 },
+    ])
+  })
 })

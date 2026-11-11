@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { fetchTransactions } from '../../api/ledgerApi'
 import { buildAccountingReports, type LedgerTransaction } from '../../domain/accounting'
 import { getLocalTransactions } from '../../offline/offlineLedger'
@@ -10,7 +10,9 @@ const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR'
 const balanceAmount = (amount: number | null) => amount === null ? '—' : amount === 0 ? '—' : euro.format(amount)
 const noTransactions: LedgerTransaction[] = []
 type BalanceRow = { conto: string; saldo: number }
-type BalanceSection = { code: string; title: string; rows: Array<{ conto: string; corrente: number; precedente: number }> }
+type BalanceAccountRow = { conto: string; corrente: number; precedente: number }
+type BalanceSubsection = { code: string; title: string; rows: BalanceAccountRow[] }
+type BalanceSection = { code: string; title: string; rows: BalanceAccountRow[]; subsections: BalanceSubsection[] }
 
 export function ReportsPage() {
   const transactions = useLedgerStore((state) => state.transactions)
@@ -124,8 +126,7 @@ export function ReportsPage() {
           </div>
           <div className="grid lg:grid-cols-2">
             <BalanceSide
-              title="Attività"
-              subtitle="Impieghi"
+              title="Investimenti"
               sections={activitySections}
               total={statoPatrimoniale.totaleAttivita}
               previousTotal={previousStatus === 'ready' ? previousBalance.totaleAttivita : null}
@@ -135,8 +136,7 @@ export function ReportsPage() {
               side="activity"
             />
             <BalanceSide
-              title="Passività e patrimonio netto"
-              subtitle="Fonti"
+              title="Fonti di finanziamento"
               sections={liabilitySections}
               total={statoPatrimoniale.totalePassivita}
               previousTotal={previousStatus === 'ready' ? previousBalance.totalePassivita : null}
@@ -207,7 +207,6 @@ export function ReportsPage() {
 
 function BalanceSide({
   title,
-  subtitle,
   sections,
   total,
   previousTotal,
@@ -217,7 +216,6 @@ function BalanceSide({
   side,
 }: {
   title: string
-  subtitle: string
   sections: BalanceSection[]
   total: number
   previousTotal: number | null
@@ -226,20 +224,17 @@ function BalanceSide({
   previousReady: boolean
   side: 'activity' | 'liability'
 }) {
+  const headingColor = side === 'activity' ? 'bg-amber-100' : 'bg-sky-100'
   return (
     <section className={`${side === 'liability' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
-      <header className="flex items-center justify-between gap-3 border-b border-stone-200 bg-stone-50 px-4 py-4 sm:px-5">
+      <header className={`border-b border-stone-300 px-4 py-3 sm:px-5 ${headingColor}`}>
         <div>
-          <h3 className="font-semibold text-stone-900">{title}</h3>
-          <p className="mt-1 text-xs uppercase tracking-wider text-stone-500">{subtitle}</p>
+          <h3 className="text-center text-xs font-bold uppercase tracking-wider text-stone-900">{title}</h3>
         </div>
-        <span className={`rounded px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${side === 'activity' ? 'bg-amber-100 text-amber-900' : 'bg-sky-100 text-sky-900'}`}>
-          {side === 'activity' ? 'Dare' : 'Avere'}
-        </span>
       </header>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[500px] table-fixed text-sm">
-          <colgroup><col className="w-[46%]" /><col className="w-[27%]" /><col className="w-[27%]" /></colgroup>
+          <colgroup><col className="w-[50%]" /><col className="w-[25%]" /><col className="w-[25%]" /></colgroup>
           <thead className="border-b border-stone-200 bg-white text-[11px] uppercase tracking-wide text-stone-500">
             <tr>
               <th className="px-4 py-2.5 text-left font-semibold sm:px-5">Voce</th>
@@ -247,40 +242,57 @@ function BalanceSide({
               <th className="px-3 py-2.5 text-right font-semibold">{previousYear}</th>
             </tr>
           </thead>
-          {sections.some((section) => section.rows.length > 0) ? sections.map((section) => (
+          {sections.map((section) => (
             <tbody key={section.code}>
-              <tr className="border-y border-stone-200 bg-stone-100/80">
+              <tr className={`border-y border-stone-300 ${headingColor}`}>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-700 sm:px-5" colSpan={3}>
-                  <span className="mr-2 text-emerald-800">{section.code}</span>{section.title}
+                  <span className="mr-2">{section.code}</span>{section.title}
                 </th>
               </tr>
-              {section.rows.length ? section.rows.map((row) => (
-                <tr key={row.conto} className="border-b border-dotted border-stone-300 last:border-solid hover:bg-stone-50">
+              {section.subsections.map((subsection) => (
+                <Fragment key={subsection.code}>
+                  {(subsection.code || subsection.title) && (
+                    <tr className="border-b border-stone-200 bg-stone-50">
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-stone-700 sm:px-5" colSpan={3}>
+                        {subsection.code && <span className="mr-2 text-stone-500">{subsection.code}</span>}{subsection.title}
+                      </th>
+                    </tr>
+                  )}
+                  {subsection.rows.map((row) => (
+                    <tr key={row.conto} className="border-b border-dotted border-stone-300 hover:bg-stone-50">
+                      <td className="break-words px-4 py-2 text-stone-700 sm:px-5">{row.conto}</td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-stone-800">{balanceAmount(row.corrente)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-stone-500">{previousReady ? balanceAmount(row.precedente) : '—'}</td>
+                    </tr>
+                  ))}
+                  {subsection.rows.length > 0 && (subsection.code || subsection.title) && (
+                    <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                      <td className="px-4 py-2 sm:px-5">Totale {subsection.title.toLowerCase()}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(subsection.rows, 'corrente'))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(subsection.rows, 'precedente')) : '—'}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              {section.rows.map((row) => (
+                <tr key={row.conto} className="border-b border-dotted border-stone-300 hover:bg-stone-50">
                   <td className="break-words px-4 py-2 text-stone-700 sm:px-5">{row.conto}</td>
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-stone-800">{balanceAmount(row.corrente)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-stone-500">{previousReady ? balanceAmount(row.precedente) : '—'}</td>
                 </tr>
-              )) : (
-                <tr className="border-b border-stone-100">
-                  <td className="px-4 py-2 text-xs italic text-stone-400 sm:px-5">Nessuna voce</td>
-                  <td className="px-2 py-2 text-right text-stone-300">—</td>
-                  <td className="px-3 py-2 text-right text-stone-300">—</td>
-                </tr>
-              )}
-              {section.rows.length > 0 && (
+              ))}
+              {section.rows.length + section.subsections.reduce((count, subsection) => count + subsection.rows.length, 0) > 0 && (
                 <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
                   <td className="px-4 py-2 sm:px-5">Totale {section.title.toLowerCase()}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(section.rows, 'corrente'))}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(section.rows, 'precedente')) : '—'}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows([...section.rows, ...section.subsections.flatMap((subsection) => subsection.rows)], 'corrente'))}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows([...section.rows, ...section.subsections.flatMap((subsection) => subsection.rows)], 'precedente')) : '—'}</td>
                 </tr>
               )}
             </tbody>
-          )) : (
-            <tbody><tr><td className="px-4 py-8 text-center text-sm text-stone-500 sm:px-5" colSpan={3}>Nessun saldo da esporre per l’esercizio {year}.</td></tr></tbody>
-          )}
-          <tfoot className="border-t-2 border-amber-400 bg-amber-50 text-sm font-bold text-stone-900">
+          ))}
+          <tfoot className="border-t-2 border-orange-400 bg-orange-100 text-sm font-bold text-stone-900">
             <tr>
-              <td className="px-4 py-3 sm:px-5">Totale {side === 'activity' ? 'attività' : 'passività e patrimonio netto'}</td>
+              <td className="px-4 py-3 sm:px-5">Totale {side === 'activity' ? 'attività' : 'passività'}</td>
               <td className="px-2 py-3 text-right tabular-nums">{balanceAmount(total)}</td>
               <td className="px-3 py-3 text-right tabular-nums">{previousReady && previousTotal !== null ? balanceAmount(previousTotal) : '—'}</td>
             </tr>
@@ -292,58 +304,88 @@ function BalanceSide({
 }
 
 function makeBalanceSections(currentRows: BalanceRow[], previousRows: BalanceRow[], side: 'activity' | 'liability'): BalanceSection[] {
-  const sections = side === 'activity'
+  const schema: Array<{ code: string; title: string; subsections: Array<{ code: string; title: string }> }> = side === 'activity'
     ? [
-      { code: 'A)', title: 'Immobilizzazioni' },
-      { code: 'B.I)', title: 'Rimanenze' },
-      { code: 'B.II)', title: 'Crediti e altre attività' },
-      { code: 'B.III)', title: 'Disponibilità liquide' },
-      { code: 'B.IV)', title: 'Altre attività correnti' },
-      { code: 'C)', title: 'Ratei e risconti attivi' },
+      { code: 'A)', title: 'Immobilizzazioni', subsections: [
+        { code: 'I -', title: 'Immobilizzazioni materiali' },
+        { code: 'II -', title: 'Immobilizzazioni finanziarie' },
+      ] },
+      { code: 'B)', title: 'Attivo circolante', subsections: [
+        { code: 'I -', title: 'Crediti' },
+        { code: 'II -', title: 'Disponibilità liquide' },
+      ] },
+      { code: 'C)', title: 'Ratei e risconti attivi', subsections: [{ code: '', title: '' }] },
     ]
     : [
-      { code: 'A)', title: 'Patrimonio netto' },
-      { code: 'B)', title: 'Fondi rischi e oneri' },
-      { code: 'C)', title: 'Debiti' },
-      { code: 'D)', title: 'Ratei e risconti passivi' },
-      { code: 'E)', title: 'Altre passività' },
+      { code: 'A)', title: 'Patrimonio netto', subsections: [
+        { code: 'I -', title: 'Capitale sociale' },
+        { code: 'II -', title: 'Riserva legale' },
+        { code: 'III -', title: 'Riserva statutaria' },
+        { code: 'IV -', title: 'Altre riserve' },
+        { code: 'VIII -', title: 'Utili d’esercizio' },
+      ] },
+      { code: 'B)', title: 'Fondi rischi e oneri', subsections: [
+        { code: 'I -', title: 'Fondi rischi e oneri' },
+      ] },
+      { code: 'C)', title: 'Debiti', subsections: [
+        { code: 'I -', title: 'Debiti a lungo termine' },
+        { code: 'II -', title: 'Debiti a breve termine' },
+      ] },
+      { code: 'D)', title: 'Ratei e risconti passivi', subsections: [{ code: '', title: '' }] },
     ]
-  const grouped = sections.map((section) => ({ ...section, rows: [] as BalanceSection['rows'] }))
-  const byName = new Map<string, { conto: string; corrente: number; precedente: number }>()
+  const grouped: BalanceSection[] = schema.map((section) => ({
+    ...section,
+    rows: [],
+    subsections: section.subsections.map((subsection) => ({ ...subsection, rows: [] as BalanceAccountRow[] })),
+  }))
+  const groupedRows = new Map<string, BalanceAccountRow>()
 
   currentRows.forEach(({ conto, saldo }) => {
-    byName.set(conto, { conto, corrente: saldo, precedente: 0 })
+    groupedRows.set(conto, { conto, corrente: saldo, precedente: 0 })
   })
   previousRows.forEach(({ conto, saldo }) => {
-    const row = byName.get(conto)
+    const row = groupedRows.get(conto)
     if (row) row.precedente = saldo
-    else byName.set(conto, { conto, corrente: 0, precedente: saldo })
+    else groupedRows.set(conto, { conto, corrente: 0, precedente: saldo })
   })
 
-  byName.forEach((row) => {
+  groupedRows.forEach((row) => {
     const name = normalizeAccountName(row.conto)
-    let sectionIndex: number
-    if (/ratei|risconti/.test(name)) {
-      sectionIndex = side === 'activity' ? 5 : 3
-    } else if (side === 'activity') {
-      if (/immobil|terren|fabbric|impiant|macchin|attrezz|autovett|automez|arred|brevet|marchi|software|azion|etf|titoli|obbligaz|partecipaz/.test(name)) sectionIndex = 0
-      else if (/rimanenz|magazzin|scort/.test(name)) sectionIndex = 1
-      else if (/credit|client|tribut|erario|depositi|anticipi/.test(name)) sectionIndex = 2
-      else if (/banca|cassa|liquidit|conto corrente|portafoglio|denaro/.test(name)) sectionIndex = 3
-      else sectionIndex = 4
-    } else if (/capitale|patrimonio netto|riserv|utile|perdita|risultato d'esercizio|titolare/.test(name)) {
-      sectionIndex = 0
-    } else if (/fond[oi]|rischi|oneri|accantonament/.test(name)) {
-      sectionIndex = 1
-    } else if (/debit|mutu|fornitor|carta|iva a debito/.test(name)) {
-      sectionIndex = 2
-    } else {
-      sectionIndex = 4
-    }
-    grouped[sectionIndex].rows.push(row)
+    const target = side === 'activity'
+      ? name.includes('ratei') || name.includes('risconti')
+        ? grouped[2].subsections[0]
+        : /banca|cassa|liquidit|conto corrente|portafoglio|denaro/.test(name)
+          ? grouped[1].subsections[1]
+          : /azion|etf|fondi|titoli|obbligaz|partecipaz|immobilizzazioni finanziarie/.test(name)
+            ? grouped[0].subsections[1]
+            : /immobil|terren|fabbric|impiant|macchin|attrezz|autovett|automez|arred|brevet|marchi|software/.test(name)
+              ? grouped[0].subsections[0]
+              : grouped[1].subsections[0]
+      : name.includes('ratei') || name.includes('risconti')
+        ? grouped[3].subsections[0]
+        : /capitale/.test(name)
+          ? grouped[0].subsections[0]
+          : /riserva legale/.test(name)
+            ? grouped[0].subsections[1]
+            : /riserva statutaria/.test(name)
+              ? grouped[0].subsections[2]
+              : /riserv|patrimonio netto|titolare/.test(name)
+                ? grouped[0].subsections[3]
+                : /utile|perdita|risultato d'esercizio/.test(name)
+                  ? grouped[0].subsections[4]
+          : /fond[oi]|rischi|oneri|accantonament/.test(name)
+            ? grouped[1].subsections[0]
+            : /mutu|lungo termine/.test(name)
+              ? grouped[2].subsections[0]
+              : /debit|fornitor|carta|iva a debito/.test(name)
+                ? grouped[2].subsections[1]
+                : grouped[2].subsections[1]
+    target.rows.push(row)
   })
 
-  grouped.forEach((section) => section.rows.sort((left, right) => left.conto.localeCompare(right.conto, 'it')))
+  grouped.forEach((section) => section.subsections.forEach((subsection) => {
+    subsection.rows.sort((left, right) => left.conto.localeCompare(right.conto, 'it'))
+  }))
   return grouped
 }
 

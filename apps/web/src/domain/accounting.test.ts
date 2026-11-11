@@ -53,6 +53,26 @@ describe('motore contabile', () => {
     ])
   })
 
+  it('mantiene capitale e riserve nello stato patrimoniale anche se hanno una gestione', () => {
+    const reports = buildAccountingReports([{
+      id: 'opening-equity',
+      data: '2026-01-01',
+      totale: 1300,
+      movimenti: [
+        { conto: 'Banca', descrizione: 'Saldo iniziale', gestione: '', dare: 1300, avere: 0 },
+        { conto: 'Capitale sociale', descrizione: 'Saldo iniziale', gestione: 'Patrimoniale', dare: 0, avere: 1000 },
+        { conto: 'Riserve legali', descrizione: 'Saldo iniziale', gestione: 'Patrimoniale', dare: 0, avere: 300 },
+      ],
+    }])
+
+    expect(reports.contoEconomico).toMatchObject({ ricavi: 0, costi: 0, utile: 0, righe: [] })
+    expect(reports.statoPatrimoniale.attivita).toContainEqual(expect.objectContaining({ conto: 'Banca', saldo: 1300 }))
+    expect(reports.statoPatrimoniale.passivita).toEqual([
+      { conto: 'Capitale sociale', saldo: 1000 },
+      { conto: 'Riserve legali', saldo: 300 },
+    ])
+  })
+
   it('raggruppa ricavi e costi per mese e ignora gli altri esercizi', () => {
     const series = buildMonthlyIncomeSeries([
       ...transactions,

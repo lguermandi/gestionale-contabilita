@@ -56,6 +56,7 @@ export interface MonthlyIncome {
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 const CASH_ACCOUNT = /(cassa|banca|liquidit|conto corrente|cash)/i
+const EQUITY_ACCOUNT = /capitale|cap\.\s*sociale|patrimonio netto|riserv|utile|perdita|risultato d['’]esercizio|titolare/i
 
 export function buildMonthlyIncomeSeries(transactions: LedgerTransaction[], year: number): MonthlyIncome[] {
   const months = Array.from({ length: 12 }, (_, index) => ({ mese: index + 1, ricavi: 0, costi: 0 }))
@@ -66,7 +67,7 @@ export function buildMonthlyIncomeSeries(transactions: LedgerTransaction[], year
     if (monthIndex < 0 || monthIndex >= months.length) return
 
     transaction.movimenti.forEach((movement) => {
-      if (!movement.gestione.trim()) return
+      if (!movement.gestione.trim() || EQUITY_ACCOUNT.test(movement.conto)) return
       const net = toCents(movement.dare) - toCents(movement.avere)
       if (net > 0) months[monthIndex].costi += net
       else months[monthIndex].ricavi -= net
@@ -137,7 +138,7 @@ export function buildAccountingReports(transactions: LedgerTransaction[]): Accou
       account.avere += credit
       accounts.set(accountName, account)
 
-      if (movement.gestione.trim()) {
+      if (movement.gestione.trim() && !EQUITY_ACCOUNT.test(accountName)) {
         const management = movement.gestione.trim()
         managementByAccount.set(accountName, management)
         managements.add(management)

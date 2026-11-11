@@ -89,29 +89,29 @@ function classifyAccount(conto: string, saldo: number): { side: 'activity' | 'li
   const name = normalizeAccountName(conto)
   const liability = (section: number, subsection: number) => ({ side: 'liability' as const, section, subsection })
   const activity = (section: number, subsection: number) => ({ side: 'activity' as const, section, subsection })
-  const equity = /capitale|patrimonio netto|riserv|utile|perdita|risultato d'esercizio|titolare/.test(name)
+  const equity = /capitale|cap\.\s*sociale|patrimonio netto|riserv|utile|perdita|risultato d'esercizio|titolare/.test(name)
 
   if (equity) {
-    if (/riserva legale/.test(name)) return liability(0, 1)
-    if (/riserva statutaria/.test(name)) return liability(0, 2)
-    if (/capitale/.test(name)) return liability(0, 0)
+    if (/riserv[ae]\s+legal[ei]/.test(name)) return liability(0, 1)
+    if (/riserv[ae]\s+statutari[ae]/.test(name)) return liability(0, 2)
+    if (/capitale|cap\.\s*sociale/.test(name)) return liability(0, 0)
     if (/utile|perdita|risultato d'esercizio/.test(name)) return liability(0, 4)
     return liability(0, 3)
   }
-  if (/fond[oi] rischi|fond[oi] oneri|rischi|oneri|accantonament/.test(name)) return liability(1, 0)
+  if (/fond[oi].*(rischi|oneri|imposte|tasse)|f\.?\s*do.*(rischi|oneri|imposte|tasse)|rischi|oneri|accantonament/.test(name)) return liability(1, 0)
   if (/ratei|risconti/.test(name)) {
     if (/attiv[oi]/.test(name)) return saldo > 0 ? activity(2, 0) : liability(3, 0)
     if (/passiv[oi]/.test(name)) return liability(3, 0)
     return saldo > 0 ? activity(2, 0) : liability(3, 0)
   }
-  if (/debit|mutu|finanziament|fornitor|carta|iva a debito/.test(name)) {
+  if (/carta|debit|mutu|finanziament|fornitor|iva a debito/.test(name)) {
     return liability(2, /lungo termine|mutu|finanziament/.test(name) ? 0 : 1)
   }
-  if (/banca|cassa|liquidit|conto corrente|portafoglio|denaro/.test(name)) {
-    return saldo > 0 ? activity(1, 1) : liability(2, 1)
-  }
   if (/azion|etf|fondi|titoli|obbligaz|partecipaz|immobilizzazioni finanziarie/.test(name)) {
-    return saldo > 0 ? activity(0, 1) : liability(2, 1)
+    return activity(0, 1)
+  }
+  if (/banca|banche|cassa|liquidit|conto corrente|portafoglio|denaro|chiave.*(macc|coffee)|macc.*coffee/.test(name)) {
+    return activity(1, 1)
   }
   if (/immobil|terren|fabbric|impiant|macchin|attrezz|autovett|automez|arred|brevet|marchi|software|altri beni|chiave/.test(name)) {
     return saldo > 0 ? activity(0, 0) : liability(2, 1)

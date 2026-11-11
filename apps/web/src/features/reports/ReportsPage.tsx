@@ -3,6 +3,7 @@ import { buildAccountingReportsForYear } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { buildBalanceSheetSections, type BalanceAccountRow, type BalanceSection, type BalanceRow } from './balanceSheet'
+import { buildCashFlowStatement, type CashFlowSection, type CashFlowStatement } from './cashFlow'
 import { buildIncomeStatement, type IncomeStatement, type IncomeStatementSection } from './incomeStatement'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -25,13 +26,14 @@ export function ReportsPage() {
   const [incomeView, setIncomeView] = useState<'scalar' | 'opposed'>('scalar')
   const previousStatus = historyLoading ? 'loading' : historyError ? 'error' : 'ready'
   const previousError = historyError ?? ''
-  const { statoPatrimoniale, liquidita } = reports
+  const { statoPatrimoniale } = reports
 
   const previousReports = useMemo(
     () => buildAccountingReportsForYear(historyTransactions, year - 1),
     [historyTransactions, year],
   )
   const previousBalance = previousReports.statoPatrimoniale
+  const cashFlow = useMemo(() => buildCashFlowStatement(reports, previousReports), [reports, previousReports])
   const balanceSections = buildBalanceSheetSections(
     signedBalanceRows(statoPatrimoniale.attivita, statoPatrimoniale.passivita),
     signedBalanceRows(previousBalance.attivita, previousBalance.passivita),
@@ -117,24 +119,114 @@ export function ReportsPage() {
           onLayoutChange={setIncomeView}
         />
       ) : (
-        <section className="border border-stone-200 bg-white">
-          <div className="border-b border-stone-200 px-5 py-4">
-            <h2 className="font-semibold text-stone-900">Rendiconto finanziario di liquidità</h2>
-            <p className="mt-1 text-sm text-stone-500">Variazioni nette giornaliere dei conti riconosciuti come cassa o banca.</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-left text-sm">
-              <thead className="bg-stone-100 text-xs uppercase text-stone-600"><tr><th className="px-5 py-3 font-semibold">Data</th><th className="px-5 py-3 text-right font-semibold">Variazione netta</th><th className="px-5 py-3 text-right font-semibold">Saldo progressivo</th></tr></thead>
-              <tbody className="divide-y divide-stone-100">
-                {liquidita.map((entry) => <tr key={entry.data}><td className="px-5 py-3">{new Date(`${entry.data}T00:00:00`).toLocaleDateString('it-IT')}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(entry.variazione)}</td><td className="px-5 py-3 text-right font-medium tabular-nums">{euro.format(entry.saldo)}</td></tr>)}
-                {!liquidita.length && <tr><td className="px-5 py-8 text-center text-stone-500" colSpan={3}>Nessun movimento di liquidità per questo esercizio.</td></tr>}
-              </tbody>
-              {liquidita.length > 0 && <tfoot className="border-t-2 border-stone-300 bg-stone-50 font-semibold"><tr><td className="px-5 py-3">Totale esercizio</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(liquidita.reduce((sum, entry) => sum + entry.variazione, 0))}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(liquidita.at(-1)?.saldo ?? 0)}</td></tr></tfoot>}
-            </table>
-          </div>
-        </section>
+        <CashFlowView
+          statement={cashFlow}
+          year={year}
+          hasData={reports.saldi.length > 0}
+          previousStatus={previousStatus}
+          previousError={previousError}
+        />
       )}
     </section>
+  )
+}
+
+function CashFlowView({
+  statement,
+  year,
+  hasData,
+  previousStatus,
+  previousError,
+}: {
+  statement: CashFlowStatement
+  year: number
+  hasData: boolean
+  previousStatus: 'loading' | 'error' | 'ready'
+  previousError: string
+}) {
+  return (
+    <section className="overflow-hidden border border-stone-200 bg-white shadow-sm">
+      <header className="border-b border-stone-200 px-5 py-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-800">Prospetto contabile · {year}</p>
+        <h2 className="mt-1 text-xl font-semibold text-stone-900">Rendiconto finanziario di liquidità</h2>
+        <p className="mt-1 text-sm text-stone-500">Metodo indiretto · importi in euro</p>
+      </header>
+      <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs leading-5 text-amber-950">
+        Le voci sono classificate in base al nome dei conti. Verifica la classificazione e il raccordo prima di utilizzare il prospetto come rendiconto ufficiale.
+      </p>
+      {previousStatus === 'loading' && (
+        <p className="border-b border-stone-200 px-5 py-3 text-xs text-stone-500">Caricamento dei saldi di apertura e del confronto {year - 1}…</p>
+      )}
+      {previousStatus === 'error' && (
+        <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900" role="status">
+          Saldi iniziali e confronto {year - 1} incompleti: {previousError}
+        </p>
+      )}
+      {!hasData ? (
+        <p className="px-5 py-10 text-center text-sm text-stone-500">Nessun dato contabile per questo esercizio.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
+              <tr><th className="px-5 py-3 font-semibold">Voce</th><th className="px-5 py-3 text-right font-semibold">Esercizio {year}</th></tr>
+            </thead>
+            <tbody>
+              <CashFlowTotalRow code="A)" label="Disponibilità monetaria iniziale" amount={statement.openingCash} />
+              <CashFlowSectionRows section={statement.operating} />
+              <CashFlowSectionRows section={statement.investing} />
+              <CashFlowSectionRows section={statement.financing} />
+              {statement.unclassified !== 0 && (
+                <CashFlowTotalRow
+                  label="Flussi non classificati / raccordo liquidità"
+                  amount={statement.unclassified}
+                  warning
+                />
+              )}
+              <CashFlowTotalRow code="E)" label="Flusso monetario netto del periodo" amount={statement.netChange} />
+            </tbody>
+            <tfoot className="border-t-2 border-emerald-800 bg-emerald-50">
+              <CashFlowTotalRow code="F)" label="Disponibilità monetaria finale" amount={statement.closingCash} />
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CashFlowSectionRows({ section }: { section: CashFlowSection }) {
+  return (
+    <>
+      <tr className="border-y border-stone-300 bg-stone-100">
+        <th className="px-5 py-2.5 text-left font-semibold text-stone-800">{section.code}) {section.title}</th>
+        <td className="px-5 py-2.5 text-right font-semibold tabular-nums">{euro.format(section.total)}</td>
+      </tr>
+      {section.rows.map((row) => (
+        <tr key={row.label} className="border-b border-dotted border-stone-200">
+          <td className="px-5 py-2 pl-9 text-stone-700">{row.label}</td>
+          <td className="px-5 py-2 text-right tabular-nums text-stone-700">{euro.format(row.amount)}</td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function CashFlowTotalRow({
+  code,
+  label,
+  amount,
+  warning = false,
+}: {
+  code?: string
+  label: string
+  amount: number
+  warning?: boolean
+}) {
+  return (
+    <tr className={`border-b border-stone-200 font-semibold ${warning ? 'bg-amber-50 text-amber-900' : 'text-stone-800'}`}>
+      <td className="px-5 py-2.5">{code && <span className="mr-2">{code}</span>}{label}</td>
+      <td className="px-5 py-2.5 text-right tabular-nums">{euro.format(amount)}</td>
+    </tr>
   )
 }
 

@@ -6,9 +6,7 @@ const appShell = document.getElementById('app-shell');
 const loginForm = document.getElementById('login-form');
 const loginError = document.getElementById('login-error');
 const loginButton = document.getElementById('login-button');
-const workspaceSetupForm = document.getElementById('workspace-setup-form');
-const workspaceSetupError = document.getElementById('workspace-setup-error');
-const workspaceSetupButton = document.getElementById('workspace-setup-button');
+const workspaceSetupMessage = document.getElementById('workspace-setup-message');
 const yearSelect = document.getElementById('selettore-anno');
 const chartSvg = document.getElementById('storico-chart');
 const chartLegend = document.getElementById('storico-legend');
@@ -36,13 +34,6 @@ function callDashboardData(token, year) {
   });
 }
 
-function callInitializeWorkspace(token, parentFolder) {
-  return new Promise((resolve, reject) => {
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
-      .initializeWorkspace(token, parentFolder);
-  });
-}
-
 function showLogin(message) {
   sessionToken = '';
   localStorage.removeItem(SESSION_KEY);
@@ -57,7 +48,8 @@ function showWorkspaceSetup(message) {
   loginScreen.hidden = true;
   appShell.hidden = true;
   workspaceSetupScreen.hidden = false;
-  workspaceSetupError.textContent = message || '';
+  workspaceSetupMessage.textContent = message
+    || 'Per scegliere un account Google e una cartella Drive, completa la configurazione dal gestionale web.';
 }
 
 function showDashboard() {
@@ -324,23 +316,6 @@ loginForm.addEventListener('submit', async event => {
     passwordInput.value = '';
   } finally {
     loginButton.disabled = false;
-  }
-});
-
-workspaceSetupForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  workspaceSetupError.textContent = '';
-  workspaceSetupButton.disabled = true;
-  const parentFolder = document.getElementById('workspace-parent-folder').value.trim();
-  try {
-    await callInitializeWorkspace(sessionToken, parentFolder);
-    document.getElementById('workspace-parent-folder').value = '';
-    showDashboard();
-    await loadDashboard();
-  } catch (error) {
-    workspaceSetupError.textContent = String(error && error.message || 'Impossibile creare lo spazio aziendale.');
-  } finally {
-    workspaceSetupButton.disabled = false;
   }
 });
 

@@ -63,17 +63,17 @@ export function loginToGas(username: string, password: string) {
 }
 
 export function getWorkspaceSetupStatus(token: string) {
-  return requestGas<{ setupRequired: boolean }>({
+  return requestGas<{ setupRequired: boolean; username: string; gasOwnerEmail: string }>({
     action: 'getWorkspaceSetupStatus',
     token,
   })
 }
 
-export function initializeWorkspace(token: string, parentFolder: string) {
+export function initializeWorkspace(token: string, workspaceFolder: string) {
   return requestGas<{ setupRequired: boolean; folderUrl: string; spreadsheetUrl: string }>({
     action: 'initializeWorkspace',
     token,
-    parentFolder,
+    workspaceFolder,
   })
 }
 

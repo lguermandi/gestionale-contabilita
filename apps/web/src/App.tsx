@@ -5,6 +5,14 @@ import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'rea
 import { buildAccountingReports } from './domain/accounting'
 import { OfflineSyncController } from './offline/OfflineSyncController'
 import { getWorkspaceSetupStatus, initializeWorkspace, loginToGas, logoutFromGas } from './api/ledgerApi'
+import {
+  chooseGoogleDriveDestination,
+  createWorkspaceDriveFolder,
+  preloadGoogleDrivePicker,
+  shareWorkspaceFolderWithBackend,
+  type CreatedDriveFolder,
+  type GoogleDriveDestination,
+} from './api/googleDrivePicker'
 import { useGasSessionStore } from './stores/gasSessionStore'
 import { useLedgerStore } from './stores/ledgerStore'
 import { useOfflineSyncStore } from './stores/offlineSyncStore'
@@ -99,13 +107,20 @@ function GasSessionControl() {
 function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
   const token = useGasSessionStore((state) => state.token)
   const clearToken = useGasSessionStore((state) => state.clearToken)
+  const activeProfile = useProfileStore((state) => state.activeProfile)
+  const setActiveProfile = useProfileStore((state) => state.setActiveProfile)
   const [workspaceStatus, setWorkspaceStatus] = useState<{
     token: string
     setupRequired: boolean
+    username: string
+    gasOwnerEmail: string
     error?: string
   } | null>(null)
-  const [parentFolder, setParentFolder] = useState('')
+  const [destination, setDestination] = useState<GoogleDriveDestination | null>(null)
+  const [createdFolder, setCreatedFolder] = useState<CreatedDriveFolder | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [choosingDestination, setChoosingDestination] = useState(false)
+  const [shareConfirmed, setShareConfirmed] = useState(false)
   const [setupError, setSetupError] = useState('')
   const [completedWorkspace, setCompletedWorkspace] = useState<{
     token: string
@@ -115,36 +130,97 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
   const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
-    if (!token) return
+    if (!token || activeProfile !== 'business') return
 
     let active = true
     getWorkspaceSetupStatus(token)
-      .then(({ setupRequired: required }) => {
-        if (active) setWorkspaceStatus({ token, setupRequired: required })
+      .then(({ setupRequired: required, username, gasOwnerEmail }) => {
+        if (active) setWorkspaceStatus({
+          token,
+          setupRequired: required,
+          username,
+          gasOwnerEmail,
+          error: required && !gasOwnerEmail
+            ? 'Il deployment GAS non comunica l’account autorizzato. Configura APP_GAS_OWNER_EMAIL e pubblica una nuova versione.'
+            : undefined,
+        })
       })
       .catch((statusError: unknown) => {
         if (!active) return
-        const message = statusError instanceof Error ? statusError.message : 'Impossibile verificare lo spazio aziendale.'
-        setWorkspaceStatus({ token, setupRequired: false, error: message })
+        const rawMessage = statusError instanceof Error ? statusError.message : 'Impossibile verificare lo spazio aziendale.'
+        const message = rawMessage.includes('Azione non supportata')
+          ? 'Il backend GAS online non è aggiornato. Pubblica una nuova versione Apps Script con le API di configurazione Drive.'
+          : rawMessage
+        setWorkspaceStatus({ token, setupRequired: false, username: '', gasOwnerEmail: '', error: message })
         if (message.includes('SESSION_EXPIRED')) clearToken()
       })
     return () => { active = false }
-  }, [clearToken, retryCount, token])
+  }, [activeProfile, clearToken, retryCount, token])
 
   const currentStatus = workspaceStatus?.token === token ? workspaceStatus : null
-  const checking = Boolean(token && !currentStatus)
+  const checking = Boolean(token && activeProfile === 'business' && !currentStatus)
   const setupRequired = currentStatus?.setupRequired ?? false
   const statusError = currentStatus?.error ?? ''
   const currentCompletedWorkspace = completedWorkspace?.token === token ? completedWorkspace : null
 
+  useEffect(() => {
+    if (!token || activeProfile !== 'business' || !setupRequired || Capacitor.isNativePlatform()) return
+
+    let active = true
+    void preloadGoogleDrivePicker().catch((error: unknown) => {
+      if (active) setSetupError(error instanceof Error ? error.message : 'Configurazione Google Drive non riuscita.')
+    })
+    return () => { active = false }
+  }, [activeProfile, setupRequired, token])
+
+  async function handleChooseDestination() {
+    if (Capacitor.isNativePlatform()) {
+      setSetupError('Per creare lo spazio Drive, completa la configurazione dal browser web. Potrai poi usare lo spazio anche nell’app Android.')
+      return
+    }
+    setChoosingDestination(true)
+    setSetupError('')
+    try {
+      const selectedDestination = await chooseGoogleDriveDestination()
+      if (!selectedDestination) return
+      const sameDestination = destination?.accountEmail === selectedDestination.accountEmail
+        && destination.parentFolder.id === selectedDestination.parentFolder.id
+      setDestination(selectedDestination)
+      if (!sameDestination) {
+        setCreatedFolder(null)
+        setShareConfirmed(false)
+      }
+    } catch (selectionError) {
+      setSetupError(selectionError instanceof Error ? selectionError.message : 'Selezione Google Drive non riuscita.')
+    } finally {
+      setChoosingDestination(false)
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token) return
+    if (!token || !destination || !currentStatus?.gasOwnerEmail) return
     setSubmitting(true)
     setSetupError('')
     try {
-      const workspace = await initializeWorkspace(token, parentFolder.trim())
-      setWorkspaceStatus({ token, setupRequired: workspace.setupRequired })
+      const workspaceFolder = createdFolder || await createWorkspaceDriveFolder(
+        destination.accessToken,
+        destination.parentFolder.id,
+        `Gestionale contabile - ${currentStatus.username || 'Azienda'}`,
+      )
+      setCreatedFolder(workspaceFolder)
+      await shareWorkspaceFolderWithBackend(
+        destination.accessToken,
+        workspaceFolder.id,
+        currentStatus.gasOwnerEmail,
+      )
+      const workspace = await initializeWorkspace(token, workspaceFolder.id)
+      setWorkspaceStatus({
+        token,
+        setupRequired: workspace.setupRequired,
+        username: currentStatus.username,
+        gasOwnerEmail: currentStatus.gasOwnerEmail,
+      })
       setCompletedWorkspace({ token, folderUrl: workspace.folderUrl, spreadsheetUrl: workspace.spreadsheetUrl })
       onReady()
     } catch (setupError) {
@@ -164,7 +240,7 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
     }
   }
 
-  if (!token || checking || (!setupRequired && !currentCompletedWorkspace && !statusError)) return null
+  if (!token || activeProfile !== 'business' || checking || (!setupRequired && !currentCompletedWorkspace && !statusError)) return null
 
   if (statusError && !setupRequired && !currentCompletedWorkspace) {
     return (
@@ -172,9 +248,10 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
         <section className="w-full max-w-lg bg-white p-6 shadow-xl" role="alert">
           <h2 className="text-lg font-semibold text-stone-900">Verifica dello spazio aziendale non riuscita</h2>
           <p className="mt-2 text-sm text-rose-700">{statusError}</p>
-          <button type="button" className="mt-5 min-h-10 bg-emerald-800 px-4 text-sm font-medium text-white" onClick={() => setRetryCount((count) => count + 1)}>
-            Riprova
-          </button>
+          <div className="mt-5 flex gap-3">
+            <button type="button" className="min-h-10 bg-emerald-800 px-4 text-sm font-medium text-white" onClick={() => setRetryCount((count) => count + 1)}>Riprova</button>
+            <button type="button" className="min-h-10 border border-stone-300 px-4 text-sm text-stone-700" onClick={() => setActiveProfile('private')}>Torna a Privato</button>
+          </div>
         </section>
       </div>
     )
@@ -203,26 +280,43 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
       <section className="w-full max-w-lg bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="workspace-setup-title">
         <h2 id="workspace-setup-title" className="text-lg font-semibold text-stone-900">Crea lo spazio aziendale</h2>
         <p className="mt-2 text-sm text-stone-600">
-          Indica la cartella Drive in cui creare automaticamente registri, cartelle per fatture, spese e documenti.
-          Il deployment GAS deve poter accedere alla cartella.
+          Scegli l’account Google e la cartella in cui creare il nuovo spazio. I dati iniziali saranno vuoti.
+          Creeremo il foglio contabile e le cartelle per fatture emesse, ricevute, estratti conto e documenti.
         </p>
-        <form onSubmit={handleSubmit} className="mt-5 grid gap-3">
-          <label className="text-sm text-stone-700" htmlFor="workspace-parent-folder">Link o ID della cartella Drive</label>
-          <input
-            id="workspace-parent-folder"
-            autoComplete="url"
-            className="min-h-11 w-full border border-stone-300 px-3 text-sm text-stone-900"
-            value={parentFolder}
-            onChange={(event) => setParentFolder(event.target.value)}
-            placeholder="https://drive.google.com/drive/folders/…"
-            required
-          />
-          {setupError && <p className="text-sm text-rose-700" role="alert">{setupError}</p>}
-          <button type="submit" disabled={submitting} className="min-h-11 bg-emerald-800 px-4 text-sm font-medium text-white disabled:opacity-50">
-            {submitting ? 'Creazione in corso…' : 'Crea cartelle e fogli'}
-          </button>
+      <form onSubmit={handleSubmit} className="mt-5 grid gap-3">
+        <button type="button" disabled={choosingDestination || submitting} className="min-h-11 border border-stone-300 px-4 text-left text-sm text-stone-800 disabled:opacity-50" onClick={() => void handleChooseDestination()}>
+          {choosingDestination ? 'Apertura di Google Drive…' : destination ? 'Cambia account o cartella Drive' : 'Scegli account e cartella Drive'}
+        </button>
+        {destination && (
+          <p className="text-sm text-stone-600" role="status">
+            Account: <strong>{destination.accountEmail}</strong><br />
+            Cartella scelta: <strong>{destination.parentFolder.name}</strong>
+            {createdFolder && <><br />Nuova cartella: <strong>{createdFolder.name}</strong></>}
+          </p>
+        )}
+        {currentStatus?.gasOwnerEmail && (
+          <label className="flex items-start gap-2 text-xs text-stone-600">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={shareConfirmed}
+              onChange={(event) => setShareConfirmed(event.target.checked)}
+            />
+            <span>
+              Autorizzo la condivisione della sola nuova cartella con {currentStatus.gasOwnerEmail}, necessaria perché il gestionale possa aggiornare i fogli.
+            </span>
+          </label>
+        )}
+        {statusError && <p className="text-sm text-rose-700" role="alert">{statusError}</p>}
+        {setupError && <p className="text-sm text-rose-700" role="alert">{setupError}</p>}
+        <button type="submit" disabled={submitting || choosingDestination || !destination || !shareConfirmed || !currentStatus?.gasOwnerEmail} className="min-h-11 bg-emerald-800 px-4 text-sm font-medium text-white disabled:opacity-50">
+          {submitting ? 'Creazione in corso…' : createdFolder ? 'Completa creazione' : 'Crea cartella e fogli'}
+        </button>
           <button type="button" disabled={submitting} className="min-h-10 text-sm text-stone-600 underline disabled:opacity-50" onClick={() => void handleWorkspaceLogout()}>
             Esci e accedi con un altro account
+          </button>
+          <button type="button" disabled={submitting} className="min-h-10 text-sm text-stone-600 underline disabled:opacity-50" onClick={() => setActiveProfile('private')}>
+            Torna a Privato
           </button>
         </form>
       </section>

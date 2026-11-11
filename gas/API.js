@@ -17,7 +17,7 @@ function doPost(event) {
     } else if (payload.action === 'getWorkspaceSetupStatus') {
       data = getWorkspaceSetupStatus_(payload.token);
     } else if (payload.action === 'initializeWorkspace') {
-      data = initializeWorkspace_(payload.token, payload.parentFolder);
+      data = initializeWorkspace_(payload.token, payload.workspaceFolder);
     } else if (payload.action === 'logout') {
       logout(payload.token);
       data = { loggedOut: true };
@@ -520,18 +520,26 @@ function getExpenseUploadFolder_(token) {
 
 function getWorkspaceSetupStatus_(token) {
   const session = requireSession_(token);
-  return { setupRequired: !session.user.workspaceReady };
+  return {
+    setupRequired: !session.user.workspaceReady,
+    username: session.user.username,
+    gasOwnerEmail: String(
+      PropertiesService.getScriptProperties().getProperty('APP_GAS_OWNER_EMAIL')
+      || Session.getEffectiveUser().getEmail()
+      || ''
+    ).trim()
+  };
 }
 
 function getWorkspaceSetupStatus(token) {
   return getWorkspaceSetupStatus_(token);
 }
 
-function initializeWorkspace(token, parentFolder) {
-  return initializeWorkspace_(token, parentFolder);
+function initializeWorkspace(token, workspaceFolder) {
+  return initializeWorkspace_(token, workspaceFolder);
 }
 
-function initializeWorkspace_(token, parentFolderInput) {
+function initializeWorkspace_(token, workspaceFolderInput) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -546,26 +554,20 @@ function initializeWorkspace_(token, parentFolderInput) {
       };
     }
 
-    const requestedParentId = folderIdFromInput_(parentFolderInput);
-    if (session.user.setupParentFolderId
-      && session.user.setupParentFolderId !== requestedParentId) {
+    const workspaceFolderId = folderIdFromInput_(workspaceFolderInput);
+    if (session.user.setupRootFolderId
+      && session.user.setupRootFolderId !== workspaceFolderId) {
       throw new Error('Configurazione già avviata in un’altra cartella. Riprendi usando la stessa destinazione.');
     }
-    const parentFolder = DriveApp.getFolderById(
-      session.user.setupParentFolderId || requestedParentId
-    );
-    session.user.setupParentFolderId = parentFolder.getId();
+    session.user.setupRootFolderId = workspaceFolderId;
+    session.user.rootFolderId = workspaceFolderId;
     saveSessionUser_(session);
 
-    if (!session.user.rootFolderId) {
-      session.user.rootFolderId = parentFolder
-        .createFolder(session.user.username + ' - Gestionale contabile')
-        .getId();
-      saveSessionUser_(session);
-    }
     const rootFolder = DriveApp.getFolderById(session.user.rootFolderId);
     const accountingFolder = getOrCreateWorkspaceFolder_(session, rootFolder, 'Contabilità', 'accountingFolderId');
-    getOrCreateWorkspaceFolder_(session, rootFolder, 'Fatture', 'invoicesFolderId');
+    getOrCreateWorkspaceFolder_(session, rootFolder, 'Fatture emesse', 'invoicesFolderId');
+    getOrCreateWorkspaceFolder_(session, rootFolder, 'Ricevute', 'receiptsFolderId');
+    getOrCreateWorkspaceFolder_(session, rootFolder, 'Estratti conto', 'bankStatementsFolderId');
     getOrCreateWorkspaceFolder_(session, rootFolder, 'Spese', 'expensesFolderId');
     const documentsFolder = getOrCreateWorkspaceFolder_(session, rootFolder, 'Documenti', 'documentsFolderId');
     const expenseFolder = getOrCreateWorkspaceFolder_(session, documentsFolder, 'Allegati spese', 'expenseFolderId');
@@ -925,4 +927,5 @@ function authorizeSpreadsheet_() {
   }
   spreadsheet.getSheets();
   DriveApp.getRootFolder().getName();
+  Session.getEffectiveUser().getEmail();
 }

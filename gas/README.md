@@ -1,8 +1,9 @@
 # Web app GAS
 
 Google Apps Script è l'unico backend dell'app. Il client React viene pubblicato
-su GitHub Pages o eseguito tramite Capacitor e legge i fogli annuali collegati
-al progetto GAS.
+su GitHub Pages o eseguito tramite Capacitor e legge i fogli annuali associati
+all'account GAS autenticato. Gli account esistenti mantengono il foglio collegato
+al progetto.
 
 ## Configurazione iniziale
 
@@ -11,21 +12,50 @@ al progetto GAS.
    - `APP_SETUP_USERNAME`: il nome utente scelto.
    - `APP_SETUP_PASSWORD`: una password nuova di almeno 12 caratteri.
 3. Nell'editor Apps Script esegui `configureCredentials_`. La funzione crea o aggiorna solo l'account indicato, salva la password come hash PBKDF2 con salt e rimuove le due proprietà temporanee. Ripeti i passaggi 2-3 per ogni nuovo account provisionato dall'amministratore. Non inviare né salvare le password nel repository.
-4. Esegui `authorizeSpreadsheet_` e autorizza l'accesso a Drive e ai fogli Google con l'account proprietario del progetto.
+4. Esegui `authorizeSpreadsheet_` e autorizza l'accesso a Drive e ai fogli Google con l'account proprietario del progetto. Se `Session.getEffectiveUser().getEmail()` restituisce un valore vuoto, aggiungi `APP_GAS_OWNER_EMAIL` con l'indirizzo dell'account che esegue il deployment.
 5. Pubblica da **Deploy → New deployment → Web app** con esecuzione come te. L'accesso del deployment può restare anonimo perché i metodi che leggono dati richiedono il login dell'app.
 6. Imposta `VITE_API_BASE_URL` all'URL `/exec` pubblico del deployment.
 
-Al primo accesso di un account senza spazio dati, l'utente inserisce il link o l'ID
-di una cartella Drive padre. La cartella deve essere accessibile all'account
-proprietario del deployment GAS: la creazione avviene nel Drive di tale account,
-non nel Drive personale dell'utente che ha effettuato il login. GAS crea sotto
-la destinazione una cartella `username - Gestionale contabile`, con le
-sottocartelle `Contabilità`, `Fatture`, `Spese` e `Documenti/Allegati spese`.
-Nella cartella `Contabilità` crea il foglio Google `Gestionale contabile -
-username`, con registri annuali, fatture, note di credito, clienti, fornitori e
-spese. Le successive operazioni dell'account sono instradate al proprio foglio.
-Gli account provisionati successivamente non condividono i dati degli altri
-utenti. L'account già collegato al foglio contabile mantiene i dati esistenti.
+Quando si seleziona il profilo **Azienda**, l'utente sceglie con Google OAuth
+l'account e una cartella padre tramite Google Drive Picker. L'app crea in
+quell'account `Gestionale contabile - username` e condivide **solo la nuova
+cartella** con l'account di esecuzione GAS, necessario per le successive
+operazioni. L'autorizzazione Google usa lo scope `drive.file`; l'access token
+resta in memoria e non viene salvato. I dati iniziali sono vuoti.
+
+Lo spazio contiene le cartelle `Contabilità`, `Fatture emesse`, `Ricevute`,
+`Estratti conto`, `Spese` e `Documenti/Allegati spese`. In `Contabilità` viene
+creato un foglio Google con registri annuali, fatture, note di credito, clienti,
+fornitori e spese. Le operazioni dell'account sono instradate al suo foglio; gli
+account provisionati successivamente hanno spazi separati. Un account già
+collegato al foglio contabile prima di questa versione mantiene i dati esistenti.
+
+### Configurazione Google Drive Picker
+
+1. In Google Cloud crea/seleziona un progetto, abilita **Google Drive API** e
+   **Google Picker API**, e collega allo stesso progetto Cloud il progetto Apps
+   Script (Impostazioni progetto → Progetto Google Cloud).
+2. Configura la schermata di consenso OAuth e crea un **ID client OAuth Web**.
+   Aggiungi come origini JavaScript autorizzate `https://lguermandi.github.io`
+   e `http://localhost:5173` per i test locali. Se usi un dominio diverso,
+   aggiungi la sua origine esatta.
+3. Crea una API key, limita le API abilitate a Drive API e Picker API e limita
+   i referrer HTTP a `https://lguermandi.github.io/*` e
+   `http://localhost:5173/*`. L'ID client, la API key e il numero progetto sono
+   identificatori pubblici, non password.
+4. In GitHub → **Settings → Secrets and variables → Actions → Variables**
+   crea queste variabili di repository:
+   - `GOOGLE_OAUTH_CLIENT_ID`: ID client OAuth Web.
+   - `GOOGLE_DRIVE_API_KEY`: API key.
+   - `GOOGLE_CLOUD_PROJECT_NUMBER`: numero del progetto Cloud, usato da Picker.
+5. Pubblica il workflow Pages per ricompilare il client con queste variabili.
+   Dopo aver caricato il codice GAS, crea una nuova versione del deployment
+   Web App: le API precedentemente non pubblicate restituiscono
+   `Azione non supportata`.
+
+La selezione Google Drive è disponibile dal browser web. Se stai usando Android
+e devi ancora creare lo spazio, apri il gestionale nel browser, completa lì
+l'autorizzazione e poi torna nell'app.
 
 Per aggiornare il codice, esegui `clasp push` dalla cartella del progetto e crea una nuova versione del deployment Web App. I file `.clasp.json` e `Config.js` contengono riferimenti al progetto e ai dati personali: non aggiungerli al repository.
 

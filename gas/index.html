@@ -22,14 +22,11 @@
   </section>
 
   <section id="workspace-setup-screen" class="login-screen" hidden>
-    <form id="workspace-setup-form" class="login-card">
+    <div class="login-card">
       <h1>Crea lo spazio aziendale</h1>
-      <p>Inserisci la cartella Drive in cui creare automaticamente registri, cartelle per fatture, spese e documenti. Il deployment GAS deve poter accedere alla cartella.</p>
-      <label for="workspace-parent-folder">Link o ID della cartella Drive</label>
-      <input id="workspace-parent-folder" name="parentFolder" type="text" autocomplete="url" placeholder="https://drive.google.com/drive/folders/… oppure ID" required>
-      <button id="workspace-setup-button" type="submit">Crea cartelle e fogli</button>
-      <p id="workspace-setup-error" class="login-error" role="alert" aria-live="polite"></p>
-    </form>
+      <p id="workspace-setup-message">Per scegliere un account Google e una cartella Drive, completa la configurazione dal gestionale web.</p>
+      <a href="https://lguermandi.github.io/gestionale-contabilita/" target="_blank" rel="noreferrer">Apri Gestionale Contabile</a>
+    </div>
   </section>
 
   <div id="app-shell" class="container" hidden>

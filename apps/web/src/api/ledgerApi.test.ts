@@ -74,7 +74,7 @@ describe('client API GAS', () => {
 
     await loginToGas('utente', 'password')
     await getWorkspaceSetupStatus('sessione')
-    await initializeWorkspace('sessione', 'https://drive.google.com/drive/folders/cartella')
+    await initializeWorkspace('sessione', 'workspace-root-id')
     await fetchTransactions(2026, 'sessione', 'private')
     await saveTransaction('sessione', transaction, 'business')
     await fetchInvoices(2026, 'sessione')
@@ -117,7 +117,7 @@ describe('client API GAS', () => {
       'logout',
     ])
     expect(payloads[1]).toMatchObject({ token: 'sessione' })
-    expect(payloads[2]).toMatchObject({ token: 'sessione', parentFolder: 'https://drive.google.com/drive/folders/cartella' })
+    expect(payloads[2]).toMatchObject({ token: 'sessione', workspaceFolder: 'workspace-root-id' })
     expect(payloads[3]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private' })
     expect(payloads[4]).toMatchObject({ token: 'sessione', transaction, entity: 'business' })
     expect(payloads[5]).toMatchObject({ anno: 2026, token: 'sessione' })

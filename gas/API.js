@@ -524,9 +524,7 @@ function getWorkspaceSetupStatus_(token) {
     setupRequired: !session.user.workspaceReady,
     username: session.user.username,
     gasOwnerEmail: String(
-      PropertiesService.getScriptProperties().getProperty('APP_GAS_OWNER_EMAIL')
-      || Session.getEffectiveUser().getEmail()
-      || ''
+      PropertiesService.getScriptProperties().getProperty('APP_GAS_OWNER_EMAIL') || ''
     ).trim()
   };
 }
@@ -927,5 +925,10 @@ function authorizeSpreadsheet_() {
   }
   spreadsheet.getSheets();
   DriveApp.getRootFolder().getName();
-  Session.getEffectiveUser().getEmail();
+  const ownerEmail = String(
+    PropertiesService.getScriptProperties().getProperty('APP_GAS_OWNER_EMAIL') || ''
+  ).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) {
+    throw new Error('Imposta APP_GAS_OWNER_EMAIL nelle proprietà script con l’account Google che esegue il deployment.');
+  }
 }

@@ -12,7 +12,7 @@ al progetto.
    - `APP_SETUP_USERNAME`: il nome utente scelto.
    - `APP_SETUP_PASSWORD`: una password nuova di almeno 12 caratteri.
 3. Nell'editor Apps Script esegui `configureCredentials_`. La funzione crea o aggiorna solo l'account indicato, salva la password come hash PBKDF2 con salt e rimuove le due proprietà temporanee. Ripeti i passaggi 2-3 per ogni nuovo account provisionato dall'amministratore. Non inviare né salvare le password nel repository.
-4. Esegui `authorizeSpreadsheet_` e autorizza l'accesso a Drive e ai fogli Google con l'account proprietario del progetto. Se `Session.getEffectiveUser().getEmail()` restituisce un valore vuoto, aggiungi `APP_GAS_OWNER_EMAIL` con l'indirizzo dell'account che esegue il deployment.
+4. In **Impostazioni progetto → Proprietà script**, imposta `APP_GAS_OWNER_EMAIL` con l'indirizzo Google dell'account che esegue il deployment come proprietario; poi esegui `authorizeSpreadsheet_` e autorizza l'accesso a Drive e ai fogli Google. Questa proprietà evita di richiedere lo scope OAuth `userinfo.email`.
 5. Pubblica da **Deploy → New deployment → Web app** con esecuzione come te. L'accesso del deployment può restare anonimo perché i metodi che leggono dati richiedono il login dell'app.
 6. Imposta `VITE_API_BASE_URL` all'URL `/exec` pubblico del deployment.
 

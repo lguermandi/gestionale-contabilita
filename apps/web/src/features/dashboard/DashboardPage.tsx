@@ -15,6 +15,11 @@ import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
+const euroWithoutDecimals = new Intl.NumberFormat('it-IT', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+})
 const monthFormat = new Intl.DateTimeFormat('it-IT', { month: 'short' })
 
 function Metric({ label, value, note }: { label: string; value: number; note: string }) {
@@ -79,7 +84,7 @@ export function DashboardPage() {
                 <LineChart data={monthlyIncome} margin={{ top: 12, right: 12, bottom: 0, left: 8 }}>
                   <CartesianGrid stroke="#e7e5e4" vertical={false} />
                   <XAxis dataKey="mese" tickFormatter={(month: number) => monthLabels[month - 1]} tickLine={false} axisLine={false} />
-                  <YAxis tickFormatter={(value: number) => euro.format(value)} tickLine={false} axisLine={false} width={90} />
+                  <YAxis tickFormatter={(value: number) => euroWithoutDecimals.format(value)} tickLine={false} axisLine={false} width={90} />
                   <Tooltip labelFormatter={(month) => monthFormat.format(new Date(year, Number(month) - 1, 1))} formatter={(value) => euro.format(Number(value))} />
                   <Legend verticalAlign="top" height={36} />
                   <Line type="monotone" dataKey="ricavi" name="Ricavi" stroke="#5965e8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAccountingReports, validateTransaction, type LedgerTransaction } from './accounting'
+import { buildAccountingReports, buildMonthlyIncomeSeries, validateTransaction, type LedgerTransaction } from './accounting'
 
 const transactions: LedgerTransaction[] = [
   {
@@ -51,5 +51,24 @@ describe('motore contabile', () => {
       { data: '2026-01-01', saldo: 100, variazione: 100 },
       { data: '2026-01-02', saldo: 70, variazione: -30 },
     ])
+  })
+
+  it('raggruppa ricavi e costi per mese e ignora gli altri esercizi', () => {
+    const series = buildMonthlyIncomeSeries([
+      ...transactions,
+      {
+        id: 'tx-3',
+        data: '2025-01-10',
+        totale: 500,
+        movimenti: [
+          { conto: 'Banca', descrizione: 'Incasso', gestione: '', dare: 500, avere: 0 },
+          { conto: 'Ricavi vendite', descrizione: 'Vendita', gestione: 'Tipica', dare: 0, avere: 500 },
+        ],
+      },
+    ], 2026)
+
+    expect(series).toHaveLength(12)
+    expect(series[0]).toEqual({ mese: 1, ricavi: 100, costi: 30 })
+    expect(series[1]).toEqual({ mese: 2, ricavi: 0, costi: 0 })
   })
 })

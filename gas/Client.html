@@ -8,7 +8,11 @@ const loginButton = document.getElementById('login-button');
 const yearSelect = document.getElementById('selettore-anno');
 const chartSvg = document.getElementById('storico-chart');
 const chartLegend = document.getElementById('storico-legend');
-let sessionToken = sessionStorage.getItem(SESSION_KEY) || '';
+let sessionToken = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY) || '';
+if (sessionToken) {
+  localStorage.setItem(SESSION_KEY, sessionToken);
+  sessionStorage.removeItem(SESSION_KEY);
+}
 
 function callLogin(username, password) {
   return new Promise((resolve, reject) => {
@@ -30,6 +34,7 @@ function callDashboardData(token, year) {
 
 function showLogin(message) {
   sessionToken = '';
+  localStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem(SESSION_KEY);
   appShell.hidden = true;
   loginScreen.hidden = false;
@@ -282,7 +287,7 @@ loginForm.addEventListener('submit', async event => {
   try {
     const session = await callLogin(username, password);
     sessionToken = session.token;
-    sessionStorage.setItem(SESSION_KEY, sessionToken);
+    localStorage.setItem(SESSION_KEY, sessionToken);
     passwordInput.value = '';
     showDashboard();
     await loadDashboard();

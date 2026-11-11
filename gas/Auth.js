@@ -4,7 +4,9 @@ const AUTH_HASH_PROPERTY = 'APP_PASSWORD_HASH';
 const AUTH_SETUP_USERNAME_PROPERTY = 'APP_SETUP_USERNAME';
 const AUTH_SETUP_PASSWORD_PROPERTY = 'APP_SETUP_PASSWORD';
 const AUTH_HASH_ITERATIONS = 60000;
-const AUTH_SESSION_SECONDS = 21600;
+const AUTH_SESSION_SECONDS = 30 * 24 * 60 * 60;
+const AUTH_SESSION_PREFIX = 'auth_';
+const AUTH_SESSION_REFRESH_THRESHOLD_SECONDS = 7 * 24 * 60 * 60;
 const AUTH_ATTEMPT_LIMIT = 10;
 const AUTH_ATTEMPT_SECONDS = 900;
 
@@ -40,13 +42,17 @@ function login(username, password) {
 
   cache.remove(attemptKey);
   const token = Utilities.getUuid() + Utilities.getUuid();
-  cache.put(`auth_${token}`, '1', AUTH_SESSION_SECONDS);
+  removeExpiredSessions_(properties);
+  properties.setProperty(
+    AUTH_SESSION_PREFIX + token,
+    String(Date.now() + AUTH_SESSION_SECONDS * 1000)
+  );
   return { token: token, expiresIn: AUTH_SESSION_SECONDS };
 }
 
 function logout(token) {
   if (typeof token === 'string' && /^[0-9a-f-]{72}$/i.test(token)) {
-    CacheService.getScriptCache().remove(`auth_${token}`);
+    PropertiesService.getScriptProperties().deleteProperty(AUTH_SESSION_PREFIX + token);
   }
 }
 
@@ -75,9 +81,29 @@ function requireSession_(token) {
   if (typeof token !== 'string' || !/^[0-9a-f-]{72}$/i.test(token)) {
     throw new Error('SESSION_EXPIRED');
   }
-  if (CacheService.getScriptCache().get(`auth_${token}`) !== '1') {
+  const properties = PropertiesService.getScriptProperties();
+  const sessionKey = AUTH_SESSION_PREFIX + token;
+  const expiresAt = Number(properties.getProperty(sessionKey));
+  const now = Date.now();
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    properties.deleteProperty(sessionKey);
     throw new Error('SESSION_EXPIRED');
   }
+  if (expiresAt - now <= AUTH_SESSION_REFRESH_THRESHOLD_SECONDS * 1000) {
+    properties.setProperty(sessionKey, String(now + AUTH_SESSION_SECONDS * 1000));
+  }
+}
+
+function removeExpiredSessions_(properties) {
+  const now = Date.now();
+  const allProperties = properties.getProperties();
+  Object.keys(allProperties).forEach(key => {
+    if (!key.startsWith(AUTH_SESSION_PREFIX)) return;
+    const expiresAt = Number(allProperties[key]);
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      properties.deleteProperty(key);
+    }
+  });
 }
 
 function derivePasswordHash_(password, salt) {
@@ -114,4 +140,3 @@ function sha256Hex_(value) {
     Utilities.Charset.UTF_8
   ).map(byte => (byte & 0xff).toString(16).padStart(2, '0')).join('');
 }
-

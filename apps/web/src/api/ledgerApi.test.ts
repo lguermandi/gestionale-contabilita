@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchInvoices, fetchTransactions, issueInvoice, loginToGas, saveTransaction } from './ledgerApi'
+import { fetchCreditNotes, fetchCustomers, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactions, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
-import type { InvoiceDraft } from '../domain/invoicing'
+import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft } from '../domain/invoicing'
+import type { ExpenseDraft } from '../domain/expenses'
 
 const transaction: LedgerTransaction = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -24,6 +25,39 @@ const invoice: InvoiceDraft = {
   note: '',
   conti: { clienti: 'Crediti', ricavi: 'Ricavi', iva: 'IVA', ritenute: 'Ritenute', cassa: 'Cassa', gestione: 'Tipica' },
 }
+const customer: InvoiceCustomer = {
+  id: '00000000-0000-4000-8000-000000000003',
+  ragioneSociale: 'Cliente',
+  indirizzo: 'Via Roma 1',
+  partitaIva: '12345678901',
+  codiceFiscale: '',
+  email: 'cliente@example.it',
+  nazione: 'Italia',
+  tipologia: 'Società',
+  cap: '00100',
+  comune: 'Roma',
+  telefono: '061234567',
+}
+const creditNote: CreditNoteDraft = {
+  id: '00000000-0000-4000-8000-000000000004',
+  data: '2026-11-10',
+  fatturaId: '00000000-0000-4000-8000-000000000002',
+  importo: 5,
+  note: 'Storno parziale',
+}
+const expense: ExpenseDraft = {
+  id: '00000000-0000-4000-8000-000000000005',
+  tipo: 'fattura',
+  data: '2026-11-10',
+  numeroDocumento: 'FT-1',
+  fornitore: customer,
+  descrizione: 'Materiale',
+  conto: 'Costi',
+  imponibile: 10,
+  aliquotaIva: 22,
+  conti: { ivaCredito: 'IVA a credito', fornitori: 'Debiti v/fornitori', gestione: 'Tipica' },
+  note: '',
+}
 
 describe('client API GAS', () => {
   afterEach(() => {
@@ -32,7 +66,7 @@ describe('client API GAS', () => {
 
   it('invia ogni operazione come JSON text/plain direttamente a GAS', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => (
-      new Response(JSON.stringify({ status: 200, data: { token: 'sessione', expiresIn: 21600 } }), {
+      new Response(JSON.stringify({ status: 200, data: { token: 'sessione', expiresIn: 2592000 } }), {
         headers: { 'Content-Type': 'application/json' },
       })
     ))
@@ -42,9 +76,18 @@ describe('client API GAS', () => {
     await fetchTransactions(2026, 'sessione', 'private')
     await saveTransaction('sessione', transaction, 'business')
     await fetchInvoices(2026, 'sessione')
+    await fetchCustomers('sessione')
+    await saveCustomer('sessione', customer)
+    await fetchCreditNotes(2026, 'sessione')
+    await issueCreditNote('sessione', creditNote)
+    await fetchSuppliers('sessione')
+    await saveSupplier('sessione', customer)
+    await fetchExpenses(2026, 'sessione')
+    await issueExpense('sessione', expense)
     await issueInvoice('sessione', invoice)
+    await logoutFromGas('sessione')
 
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(14)
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec')
       expect(init?.method).toBe('POST')
@@ -58,12 +101,30 @@ describe('client API GAS', () => {
       'getTransactions',
       'appendTransaction',
       'getInvoices',
+      'getCustomers',
+      'saveCustomer',
+      'getCreditNotes',
+      'issueCreditNote',
+      'getSuppliers',
+      'saveSupplier',
+      'getExpenses',
+      'issueExpense',
       'issueInvoice',
+      'logout',
     ])
     expect(payloads[1]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private' })
     expect(payloads[2]).toMatchObject({ token: 'sessione', transaction, entity: 'business' })
     expect(payloads[3]).toMatchObject({ anno: 2026, token: 'sessione' })
-    expect(payloads[4]).toMatchObject({ token: 'sessione', invoice })
+    expect(payloads[4]).toMatchObject({ token: 'sessione' })
+    expect(payloads[5]).toMatchObject({ token: 'sessione', customer })
+    expect(payloads[6]).toMatchObject({ token: 'sessione', anno: 2026 })
+    expect(payloads[7]).toMatchObject({ token: 'sessione', creditNote })
+    expect(payloads[8]).toMatchObject({ token: 'sessione' })
+    expect(payloads[9]).toMatchObject({ token: 'sessione', supplier: customer })
+    expect(payloads[10]).toMatchObject({ token: 'sessione', anno: 2026 })
+    expect(payloads[11]).toMatchObject({ token: 'sessione', expense })
+    expect(payloads[12]).toMatchObject({ token: 'sessione', invoice })
+    expect(payloads[13]).toMatchObject({ token: 'sessione' })
   })
 
   it('propaga gli errori applicativi restituiti da GAS', async () => {

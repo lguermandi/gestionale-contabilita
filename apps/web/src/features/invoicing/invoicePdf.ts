@@ -51,7 +51,13 @@ export function createInvoicePdf(invoice: IssuedInvoice, company: CompanyProfile
   document.text(invoice.cliente.ragioneSociale, left, buyerTop + 7)
   document.setFont('helvetica', 'normal')
   document.setFontSize(9)
-  const buyerDetails = [invoice.cliente.indirizzo, `P. IVA / C.F. ${invoice.cliente.partitaIva}`, invoice.cliente.email].filter(Boolean)
+  const buyerDetails = [
+    invoice.cliente.indirizzo,
+    [invoice.cliente.cap, invoice.cliente.comune, invoice.cliente.nazione].filter(Boolean).join(' '),
+    invoice.cliente.partitaIva && `P. IVA ${invoice.cliente.partitaIva}`,
+    invoice.cliente.codiceFiscale && `C.F. ${invoice.cliente.codiceFiscale}`,
+    invoice.cliente.email,
+  ].filter(Boolean) as string[]
   buyerDetails.forEach((line, index) => document.text(line, left, buyerTop + 13 + index * 5))
 
   const tableTop = buyerTop + Math.max(20, 13 + buyerDetails.length * 5)
@@ -89,6 +95,7 @@ export function createInvoicePdf(invoice: IssuedInvoice, company: CompanyProfile
     ...(invoice.totali.cassa > 0 ? [[`Cassa previdenziale ${invoice.aliquotaCassa}%`, euro.format(invoice.totali.cassa)]] : []),
     [`IVA ${invoice.aliquotaIva}% su ${euro.format(invoice.totali.baseIva)}`, euro.format(invoice.totali.iva)],
     ...(invoice.totali.ritenuta > 0 ? [[`Ritenuta ${invoice.aliquotaRitenuta}%`, `- ${euro.format(invoice.totali.ritenuta)}`]] : []),
+    ...((invoice.totali.bollo || 0) > 0 ? [['Marca da bollo', euro.format(invoice.totali.bollo)]] : []),
     ['Totale da pagare', euro.format(invoice.totali.totale)],
   ]
   autoTable(document, {
@@ -102,6 +109,27 @@ export function createInvoicePdf(invoice: IssuedInvoice, company: CompanyProfile
       if (data.row.index === totalsRows.length - 1) data.cell.styles.fontStyle = 'bold'
     },
   })
+
+  const paymentTop = (document as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? summaryTop
+  const paymentDetails = [
+    invoice.pagamento?.metodo ? `Modalità di pagamento: ${invoice.pagamento.metodo}` : '',
+    invoice.pagamento?.scadenza
+      ? `Scadenza: ${dateFormatter.format(new Date(`${invoice.pagamento.scadenza}T00:00:00`))}`
+      : '',
+    invoice.pagamento?.incassata ? 'Pagamento già ricevuto.' : '',
+    invoice.marcaDaBollo?.identificativo ? `ID marca da bollo: ${invoice.marcaDaBollo.identificativo}` : '',
+  ].filter(Boolean)
+  if (paymentDetails.length) {
+    let detailsTop = paymentTop + 12
+    if (detailsTop > 270) {
+      document.addPage()
+      detailsTop = 22
+    }
+    document.setFont('helvetica', 'normal')
+    document.setFontSize(9)
+    document.setTextColor(87, 83, 78)
+    document.text(paymentDetails, left, detailsTop)
+  }
 
   return document
 }

@@ -32,6 +32,11 @@ const defaultCompanyProfile: CompanyProfile = {
         ritenute: 'Erario c/ritenute subite',
         cassa: 'Contributi previdenziali',
         gestione: 'Tipica',
+        bollo: 'Debiti per imposta di bollo',
+        incassi: 'Banca c/c',
+        costi: 'Costi per acquisti',
+        ivaCredito: 'IVA a credito',
+        fornitori: 'Debiti v/fornitori',
     },
 }
 
@@ -50,6 +55,23 @@ export const useProfileStore = create<ProfileState>()(
             companyProfile: defaultCompanyProfile,
             setCompanyProfile: (companyProfile) => set({ companyProfile }),
         }),
-        { name: 'gestionale-active-profile' },
+        {
+            name: 'gestionale-active-profile',
+            merge: (persistedState, currentState) => {
+                const persisted = persistedState as Partial<ProfileState> | undefined
+                return {
+                    ...currentState,
+                    ...persisted,
+                    companyProfile: {
+                        ...currentState.companyProfile,
+                        ...persisted?.companyProfile,
+                        conti: {
+                            ...currentState.companyProfile.conti,
+                            ...persisted?.companyProfile?.conti,
+                        },
+                    },
+                }
+            },
+        },
     ),
 )

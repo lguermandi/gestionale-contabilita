@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 interface GasSessionState {
   token: string | null
@@ -6,8 +7,16 @@ interface GasSessionState {
   clearToken: () => void
 }
 
-export const useGasSessionStore = create<GasSessionState>((set) => ({
-  token: null,
-  setToken: (token) => set({ token }),
-  clearToken: () => set({ token: null }),
-}))
+export const useGasSessionStore = create<GasSessionState>()(
+  persist(
+    (set) => ({
+      token: null,
+      setToken: (token) => set({ token }),
+      clearToken: () => set({ token: null }),
+    }),
+    {
+      name: 'gas-session',
+      partialize: (state) => ({ token: state.token }),
+    },
+  ),
+)

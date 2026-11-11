@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { buildAccountingReports } from './domain/accounting'
 import { OfflineSyncController } from './offline/OfflineSyncController'
-import { loginToGas } from './api/ledgerApi'
+import { loginToGas, logoutFromGas } from './api/ledgerApi'
 import { useGasSessionStore } from './stores/gasSessionStore'
 import { useLedgerStore } from './stores/ledgerStore'
 import { useOfflineSyncStore } from './stores/offlineSyncStore'
@@ -21,6 +21,7 @@ const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage').th
 const TransactionForm = lazy(() => import('./features/ledger/TransactionForm').then((module) => ({ default: module.TransactionForm })))
 const ReportsPage = lazy(() => import('./features/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })))
 const InvoicesPage = lazy(() => import('./features/invoicing/InvoicesPage').then((module) => ({ default: module.InvoicesPage })))
+const ExpensesPage = lazy(() => import('./features/expenses/ExpensesPage').then((module) => ({ default: module.ExpensesPage })))
 const CompanySettingsPage = lazy(() => import('./features/settings/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
 
 function BusinessOnly({ children }: { children: ReactNode }) {
@@ -52,8 +53,29 @@ function GasSessionControl() {
     }
   }
 
+  async function handleLogout() {
+    if (!token) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await logoutFromGas(token)
+      clearToken()
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : 'Uscita da GAS non riuscita.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   if (token) {
-    return <button type="button" className="text-sm font-medium text-emerald-900 underline" onClick={clearToken}>Esci da GAS</button>
+    return (
+      <div>
+        <button type="button" disabled={submitting} className="text-sm font-medium text-emerald-900 underline disabled:opacity-50" onClick={() => void handleLogout()}>
+          {submitting ? 'Uscita…' : 'Esci da GAS'}
+        </button>
+        {error && <p className="mt-1 text-xs text-rose-700" role="alert">{error}</p>}
+      </div>
+    )
   }
 
   return (
@@ -89,7 +111,7 @@ function AppShell() {
   const reports = useMemo(() => buildAccountingReports(transactions), [transactions])
   const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() + 1 - index)
   const visibleNavigation = activeProfile === 'business'
-    ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, navigation[3]]
+    ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, { label: 'Spese', to: '/spese' }, navigation[3]]
     : navigation
 
   useEffect(() => {
@@ -150,6 +172,7 @@ function AppShell() {
             <Route path="/partita-doppia" element={<TransactionForm key={`${activeProfile}-${year}`} year={year} entity={activeProfile} accounts={reports.conti} managements={reports.gestioni} onSaved={() => void refresh(year, token, activeProfile)} />} />
             <Route path="/bilancio" element={<ReportsPage />} />
             <Route path="/fatturazione" element={<BusinessOnly><InvoicesPage key={year} year={year} /></BusinessOnly>} />
+            <Route path="/spese" element={<BusinessOnly><ExpensesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/impostazioni" element={<CompanySettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

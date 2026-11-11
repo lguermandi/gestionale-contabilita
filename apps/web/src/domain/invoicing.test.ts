@@ -11,7 +11,7 @@ const invoiceDraft: InvoiceDraft = {
   aliquotaCassa: 4,
   aliquotaRitenuta: 20,
   note: '',
-  conti: { clienti: 'Crediti v/clienti', ricavi: 'Ricavi da servizi', iva: 'IVA a debito', ritenute: 'Erario c/ritenute', cassa: 'Contributi previdenziali', gestione: 'Tipica' },
+  conti: { clienti: 'Crediti v/clienti', ricavi: 'Ricavi da servizi', iva: 'IVA a debito', ritenute: 'Erario c/ritenute', cassa: 'Contributi previdenziali', gestione: 'Tipica', bollo: 'Debiti per imposta di bollo', incassi: 'Banca c/c' },
 }
 
 describe('motore fatturazione', () => {
@@ -22,6 +22,7 @@ describe('motore fatturazione', () => {
       baseIva: 208,
       iva: 45.76,
       ritenuta: 40,
+      bollo: 0,
       totale: 213.76,
     })
     expect(validateInvoice(invoiceDraft)).toEqual([])
@@ -35,6 +36,40 @@ describe('motore fatturazione', () => {
 
     expect(debit).toBe(credit)
     expect(debit).toBe(25376)
+  })
+
+  it('aggiunge il bollo al totale senza applicargli l’IVA e registra gli incassi sul conto selezionato', () => {
+    const invoice: IssuedInvoice = {
+      ...invoiceDraft,
+      marcaDaBollo: { addebitata: true, importo: 2, identificativo: 'ID-123' },
+      pagamento: { metodo: 'Bonifico', scadenza: '2026-12-10', incassata: true },
+      numero: '2026/0001',
+      stato: 'emessa',
+      totali: calculateInvoiceTotals({
+        ...invoiceDraft,
+        marcaDaBollo: { addebitata: true, importo: 2, identificativo: 'ID-123' },
+      }),
+    }
+    const entries = buildInvoicePosting(invoice)
+    const debit = entries.reduce((sum, entry) => sum + Math.round(entry.dare * 100), 0)
+    const credit = entries.reduce((sum, entry) => sum + Math.round(entry.avere * 100), 0)
+
+    expect(invoice.totali).toMatchObject({ iva: 45.76, bollo: 2, totale: 215.76 })
+    expect(entries[0]).toMatchObject({ conto: 'Banca c/c', dare: 215.76 })
+    expect(entries.at(-1)).toMatchObject({ conto: 'Debiti per imposta di bollo', avere: 2 })
+    expect(debit).toBe(credit)
+  })
+
+  it('rifiuta scadenze non valide e dati contabili mancanti per bollo e incassi', () => {
+    const invalid = {
+      ...invoiceDraft,
+      pagamento: { metodo: 'Bonifico', scadenza: '2026-02-31', incassata: true },
+      marcaDaBollo: { addebitata: true, importo: 2, identificativo: '' },
+      conti: { ...invoiceDraft.conti, incassi: '', bollo: '' },
+    }
+    expect(validateInvoice(invalid)).toContain('Inserisci una data di scadenza valida.')
+    expect(validateInvoice(invalid)).toContain('Configura il conto per gli incassi già ricevuti nelle Impostazioni.')
+    expect(validateInvoice(invalid)).toContain('Configura il conto per la marca da bollo nelle Impostazioni.')
   })
 
   it('genera un PDF leggibile con intestazione e righe fattura', () => {

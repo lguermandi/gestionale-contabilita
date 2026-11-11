@@ -1,5 +1,6 @@
 import type { LedgerTransaction } from '../domain/accounting'
-import type { InvoiceDraft, IssuedInvoice } from '../domain/invoicing'
+import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft, IssuedCreditNote, IssuedInvoice } from '../domain/invoicing'
+import type { ExpenseDraft, IssuedExpense } from '../domain/expenses'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   || 'https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec'
@@ -61,6 +62,13 @@ export function loginToGas(username: string, password: string) {
   })
 }
 
+export function logoutFromGas(token: string) {
+  return requestGas<{ loggedOut: boolean }>({
+    action: 'logout',
+    token,
+  })
+}
+
 export function saveTransaction(token: string, transaction: LedgerTransaction, entity: 'private' | 'business') {
   return requestGas<{ id: string; duplicate: boolean }>({
     action: 'appendTransaction',
@@ -76,6 +84,45 @@ export function fetchInvoices(year: number, token: string) {
     token,
     anno: year,
   })
+}
+
+export function fetchCustomers(token: string) {
+  return requestGas<InvoiceCustomer[]>({
+    action: 'getCustomers',
+    token,
+  })
+}
+
+export function saveCustomer(token: string, customer: InvoiceCustomer) {
+  return requestGas<InvoiceCustomer>({
+    action: 'saveCustomer',
+    token,
+    customer,
+  })
+}
+
+export function fetchCreditNotes(year: number, token: string) {
+  return requestGas<IssuedCreditNote[]>({ action: 'getCreditNotes', token, anno: year })
+}
+
+export function issueCreditNote(token: string, creditNote: CreditNoteDraft) {
+  return requestGas<IssuedCreditNote>({ action: 'issueCreditNote', token, creditNote })
+}
+
+export function fetchSuppliers(token: string) {
+  return requestGas<InvoiceCustomer[]>({ action: 'getSuppliers', token })
+}
+
+export function saveSupplier(token: string, supplier: InvoiceCustomer) {
+  return requestGas<InvoiceCustomer>({ action: 'saveSupplier', token, supplier })
+}
+
+export function fetchExpenses(year: number, token: string) {
+  return requestGas<IssuedExpense[]>({ action: 'getExpenses', token, anno: year })
+}
+
+export function issueExpense(token: string, expense: ExpenseDraft) {
+  return requestGas<IssuedExpense>({ action: 'issueExpense', token, expense })
 }
 
 export function issueInvoice(token: string, invoice: InvoiceDraft) {

@@ -47,9 +47,38 @@ export interface AccountingReports {
   gestioni: string[]
 }
 
+export interface MonthlyIncome {
+  mese: number
+  ricavi: number
+  costi: number
+}
+
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 const CASH_ACCOUNT = /(cassa|banca|liquidit|conto corrente|cash)/i
+
+export function buildMonthlyIncomeSeries(transactions: LedgerTransaction[], year: number): MonthlyIncome[] {
+  const months = Array.from({ length: 12 }, (_, index) => ({ mese: index + 1, ricavi: 0, costi: 0 }))
+
+  transactions.forEach((transaction) => {
+    if (Number(transaction.data.slice(0, 4)) !== year) return
+    const monthIndex = Number(transaction.data.slice(5, 7)) - 1
+    if (monthIndex < 0 || monthIndex >= months.length) return
+
+    transaction.movimenti.forEach((movement) => {
+      if (!movement.gestione.trim()) return
+      const net = toCents(movement.dare) - toCents(movement.avere)
+      if (net > 0) months[monthIndex].costi += net
+      else months[monthIndex].ricavi -= net
+    })
+  })
+
+  return months.map(({ mese, ricavi, costi }) => ({
+    mese,
+    ricavi: fromCents(ricavi),
+    costi: fromCents(costi),
+  }))
+}
 
 export function validateTransaction(transaction: Pick<LedgerTransaction, 'data' | 'movimenti'>) {
   const errors: string[] = []

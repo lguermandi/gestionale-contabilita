@@ -20,6 +20,11 @@ const accountFields: Array<{ key: keyof InvoiceAccounts; label: string }> = [
   { key: 'ritenute', label: 'Ritenute da recuperare' },
   { key: 'cassa', label: 'Contributi previdenziali' },
   { key: 'gestione', label: 'Gestione economica' },
+  { key: 'bollo', label: 'Debiti per imposta di bollo' },
+  { key: 'incassi', label: 'Incassi già ricevuti (cassa/banca)' },
+  { key: 'costi', label: 'Costi per acquisti (predefinito)' },
+  { key: 'ivaCredito', label: 'IVA a credito' },
+  { key: 'fornitori', label: 'Debiti verso fornitori' },
 ]
 
 export function CompanySettingsPage() {

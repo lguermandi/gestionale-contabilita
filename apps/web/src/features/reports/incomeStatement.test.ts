@@ -35,4 +35,29 @@ describe('conto economico civilistico gestionale', () => {
     expect(statement.negativeSections[0].items[0]).toMatchObject({ code: '14', rows: [{ conto: 'Uscita non classificata' }] })
     expect(statement.netResult).toBe(-35)
   })
+
+  it('classifica come A1 stipendio e ricavi x lavori e mantiene in A le altre entrate del foglio', () => {
+    const accounts = ['stipendio', 'ricavi x lavori', 'donazione', 'entrate diverse', 'paghetta', 'rimborso']
+    const statement = buildIncomeStatement(accounts.map((conto) => ({
+      conto,
+      gestione: 'Tipica',
+      ricavi: 10,
+      costi: 0,
+      saldo: 10,
+    })))
+    const production = statement.sections.find(({ code }) => code === 'A')
+
+    expect(production?.items.find(({ code }) => code === '1')?.rows.map(({ conto }) => conto).sort()).toEqual([
+      'ricavi x lavori',
+      'stipendio',
+    ].sort())
+    expect(production?.items.find(({ code }) => code === '5')?.rows.map(({ conto }) => conto).sort()).toEqual([
+      'donazione',
+      'entrate diverse',
+      'paghetta',
+      'rimborso',
+    ].sort())
+    expect(production?.total).toBe(60)
+    expect(statement.sections.find(({ code }) => code === 'B')?.items).toEqual([])
+  })
 })

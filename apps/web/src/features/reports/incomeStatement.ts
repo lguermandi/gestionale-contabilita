@@ -150,7 +150,7 @@ function classifyAccount(conto: string, side: IncomeStatementSide): ItemCode {
     if (/variaz.*rimanenz|rimanenz/.test(name)) return '2'
     if (/lavor[oi].*corso|commess/.test(name)) return '3'
     if (/increment.*immobilizz|capitalizz.*lavor/.test(name)) return '4'
-    if (/vendit|prestaz|serviz|fattur|ricav/.test(name)) return '1'
+    if (/stipend|vendit|prestaz|serviz|fattur|ricav/.test(name)) return '1'
     return '5'
   }
 

@@ -66,13 +66,13 @@ jobs:
         working-directory: apps/web/android
 
       - name: Rename APK with deployment timestamp
-        run: mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/gestionale-contabile-debug-${{ steps.build_metadata.outputs.timestamp }}.apk"
+        run: mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/gestionale-contabile-${{ steps.build_metadata.outputs.timestamp }}.apk"
         working-directory: apps/web/android
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gestionale-contabile-debug-${{ steps.build_metadata.outputs.timestamp }}
-          path: apps/web/android/app/build/outputs/apk/debug/gestionale-contabile-debug-${{ steps.build_metadata.outputs.timestamp }}.apk
+          name: gestionale-contabile-${{ steps.build_metadata.outputs.timestamp }}
+          path: apps/web/android/app/build/outputs/apk/debug/gestionale-contabile-${{ steps.build_metadata.outputs.timestamp }}.apk
           if-no-files-found: error
           retention-days: 90

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAccountingReports, buildMonthlyIncomeSeries, validateTransaction, type LedgerTransaction } from './accounting'
+import { buildAccountingReports, buildAccountingReportsForYear, buildMonthlyIncomeSeries, validateTransaction, type LedgerTransaction } from './accounting'
 
 const transactions: LedgerTransaction[] = [
   {
@@ -71,6 +71,69 @@ describe('motore contabile', () => {
       { conto: 'Capitale sociale', saldo: 1000 },
       { conto: 'Riserve legali', saldo: 300 },
     ])
+  })
+
+  it('somma il saldo patrimoniale precedente ai movimenti del nuovo esercizio', () => {
+    const reports = buildAccountingReportsForYear([
+      {
+        id: 'opening',
+        data: '2024-01-01',
+        totale: 100,
+        movimenti: [
+          { conto: 'Banca', descrizione: '', gestione: '', dare: 100, avere: 0 },
+          { conto: 'Capitale sociale', descrizione: '', gestione: '', dare: 0, avere: 100 },
+        ],
+      },
+      {
+        id: 'payment',
+        data: '2025-02-01',
+        totale: 30,
+        movimenti: [
+          { conto: 'Costi materiali', descrizione: '', gestione: 'Tipica', dare: 30, avere: 0 },
+          { conto: 'Banca', descrizione: '', gestione: '', dare: 0, avere: 30 },
+        ],
+      },
+    ], 2025)
+
+    expect(reports.contoEconomico).toMatchObject({ ricavi: 0, costi: 30, utile: -30 })
+    expect(reports.statoPatrimoniale.attivita).toContainEqual(expect.objectContaining({ conto: 'Banca', saldo: 70 }))
+    expect(reports.statoPatrimoniale.passivita).toEqual([
+      { conto: 'Capitale sociale', saldo: 100 },
+      { conto: "Risultato d'esercizio", saldo: -30 },
+    ])
+    expect(reports.statoPatrimoniale.totaleAttivita).toBe(70)
+    expect(reports.statoPatrimoniale.totalePassivita).toBe(70)
+  })
+
+  it('chiude il risultato dell’anno precedente quando viene trasferito a riserva', () => {
+    const reports = buildAccountingReportsForYear([
+      {
+        id: 'profit',
+        data: '2024-12-31',
+        totale: 100,
+        movimenti: [
+          { conto: 'Banca', descrizione: '', gestione: '', dare: 100, avere: 0 },
+          { conto: 'Ricavi vendite', descrizione: '', gestione: 'Tipica', dare: 0, avere: 100 },
+        ],
+      },
+      {
+        id: 'closing-transfer',
+        data: '2025-01-01',
+        totale: 100,
+        movimenti: [
+          { conto: "Risultato d'esercizio", descrizione: '', gestione: '', dare: 100, avere: 0 },
+          { conto: 'Altre riserve', descrizione: '', gestione: '', dare: 0, avere: 100 },
+        ],
+      },
+    ], 2025)
+
+    expect(reports.contoEconomico).toMatchObject({ ricavi: 0, costi: 0, utile: 0 })
+    expect(reports.statoPatrimoniale.attivita).toContainEqual(expect.objectContaining({ conto: 'Banca', saldo: 100 }))
+    expect(reports.statoPatrimoniale.passivita).toEqual([
+      { conto: 'Altre riserve', saldo: 100 },
+    ])
+    expect(reports.statoPatrimoniale.totaleAttivita).toBe(100)
+    expect(reports.statoPatrimoniale.totalePassivita).toBe(100)
   })
 
   it('raggruppa ricavi e costi per mese e ignora gli altri esercizi', () => {

@@ -53,10 +53,42 @@ export interface MonthlyIncome {
   costi: number
 }
 
+export interface BalanceOpening {
+  conto: string
+  saldo: number
+}
+
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 const CASH_ACCOUNT = /(cassa|banca|liquidit|conto corrente|cash)/i
 const EQUITY_ACCOUNT = /capitale|cap\.\s*sociale|patrimonio netto|riserv|utile|perdita|risultato d['’]esercizio|titolare/i
+
+export function buildAccountingReportsForYear(transactions: LedgerTransaction[], year: number): AccountingReports {
+  const transactionsByYear = new Map<number, LedgerTransaction[]>()
+  transactions.forEach((transaction) => {
+    const transactionYear = Number(transaction.data.slice(0, 4))
+    if (!Number.isInteger(transactionYear) || transactionYear > year) return
+    const annualTransactions = transactionsByYear.get(transactionYear) ?? []
+    annualTransactions.push(transaction)
+    transactionsByYear.set(transactionYear, annualTransactions)
+  })
+
+  const years = [...transactionsByYear.keys(), year].filter((value, index, values) => values.indexOf(value) === index).sort((left, right) => left - right)
+  let openingBalances: BalanceOpening[] = []
+  let report = buildAccountingReports([], openingBalances)
+
+  years.forEach((annualYear) => {
+    report = buildAccountingReports(transactionsByYear.get(annualYear) ?? [], openingBalances)
+    if (annualYear < year) {
+      openingBalances = [
+        ...report.statoPatrimoniale.attivita.map(({ conto, saldo }) => ({ conto, saldo })),
+        ...report.statoPatrimoniale.passivita.map(({ conto, saldo }) => ({ conto, saldo: -saldo })),
+      ]
+    }
+  })
+
+  return report
+}
 
 export function buildMonthlyIncomeSeries(transactions: LedgerTransaction[], year: number): MonthlyIncome[] {
   const months = Array.from({ length: 12 }, (_, index) => ({ mese: index + 1, ricavi: 0, costi: 0 }))
@@ -119,12 +151,21 @@ export function validateTransaction(transaction: Pick<LedgerTransaction, 'data' 
   return errors
 }
 
-export function buildAccountingReports(transactions: LedgerTransaction[]): AccountingReports {
+export function buildAccountingReports(transactions: LedgerTransaction[], openingBalances: BalanceOpening[] = []): AccountingReports {
   const accounts = new Map<string, { dare: number; avere: number }>()
   const managementByAccount = new Map<string, string>()
   const incomeByAccount = new Map<string, { gestione: string; ricavi: number; costi: number }>()
   const dailyCashChanges = new Map<string, number>()
   const managements = new Set<string>()
+
+  openingBalances.forEach(({ conto, saldo }) => {
+    if (!conto || !Number.isFinite(saldo) || saldo === 0) return
+    const amount = toCents(saldo)
+    accounts.set(conto, {
+      dare: Math.max(amount, 0),
+      avere: Math.max(-amount, 0),
+    })
+  })
 
   transactions.forEach((transaction) => {
     transaction.movimenti.forEach((movement) => {
@@ -180,13 +221,15 @@ export function buildAccountingReports(transactions: LedgerTransaction[]): Accou
   const costiCents = righe.reduce((sum, line) => sum + toCents(line.costi), 0)
   const utileCents = ricaviCents - costiCents
 
-  const patrimoniali = saldi.filter((account) => !managementByAccount.has(account.conto))
-  const attivita = patrimoniali.filter((account) => account.saldo > 0)
+  const patrimoniali = saldi.filter((account) => !managementByAccount.has(account.conto) && account.saldo !== 0)
+  const attivita = patrimoniali.filter((account) => !EQUITY_ACCOUNT.test(account.conto) && account.saldo > 0)
   const passivita = patrimoniali
-    .filter((account) => account.saldo < 0)
+    .filter((account) => EQUITY_ACCOUNT.test(account.conto) || account.saldo < 0)
     .map((account) => ({ conto: account.conto, saldo: -account.saldo }))
   if (utileCents !== 0) {
-    passivita.push({ conto: "Risultato d'esercizio", saldo: fromCents(utileCents) })
+    const resultAccount = passivita.find((account) => /risultato d['’]esercizio/i.test(account.conto))
+    if (resultAccount) resultAccount.saldo = fromCents(toCents(resultAccount.saldo) + utileCents)
+    else passivita.push({ conto: "Risultato d'esercizio", saldo: fromCents(utileCents) })
   }
 
   let runningCash = 0

@@ -10,7 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { Link } from 'react-router-dom'
-import { buildAccountingReports, buildMonthlyIncomeSeries } from '../../domain/accounting'
+import { buildAccountingReportsForYear, buildMonthlyIncomeSeries } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 
@@ -35,10 +35,14 @@ function Metric({ label, value, note }: { label: string; value: number; note: st
 export function DashboardPage() {
   const year = useLedgerStore((state) => state.selectedYear)
   const transactions = useLedgerStore((state) => state.transactions)
+  const historyTransactions = useLedgerStore((state) => state.historyTransactions)
   const loading = useLedgerStore((state) => state.loading)
   const error = useLedgerStore((state) => state.error)
   const token = useGasSessionStore((state) => state.token)
-  const reports = useMemo(() => buildAccountingReports(transactions), [transactions])
+  const reports = useMemo(
+    () => buildAccountingReportsForYear([...historyTransactions, ...transactions], year),
+    [historyTransactions, transactions, year],
+  )
   const monthlyIncome = useMemo(() => buildMonthlyIncomeSeries(transactions, year), [transactions, year])
   const monthLabels = useMemo(() => monthlyIncome.map(({ mese }) => monthFormat.format(new Date(year, mese - 1, 1))), [monthlyIncome, year])
   const latestTransactions = useMemo(

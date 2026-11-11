@@ -54,6 +54,15 @@ export async function fetchTransactions(year: number, token: string, entity: 'pr
   })
 }
 
+export async function fetchTransactionHistory(throughYear: number, token: string, entity: 'private' | 'business') {
+  return requestGas<{ years: number[]; transactions: LedgerTransaction[] }>({
+    action: 'getTransactionHistory',
+    token,
+    anno: throughYear,
+    entity,
+  })
+}
+
 export function loginToGas(username: string, password: string) {
   return requestGas<{ token: string; expiresIn: number; setupRequired: boolean }>({
     action: 'login',

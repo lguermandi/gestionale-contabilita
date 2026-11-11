@@ -23,6 +23,8 @@ function doPost(event) {
       data = { loggedOut: true };
     } else if (payload.action === 'getTransactions') {
       data = getTransactions_(payload.token, payload.anno, payload.entity);
+    } else if (payload.action === 'getTransactionHistory') {
+      data = getTransactionHistory_(payload.token, payload.anno, payload.entity);
     } else if (payload.action === 'appendTransaction') {
       data = appendTransaction_(payload.token, payload.transaction, payload.entity);
     } else if (payload.action === 'getInvoices') {
@@ -73,6 +75,35 @@ function getTransactions_(token, anno, entity) {
   const lastRow = sheet.getLastRow();
   const rows = lastRow ? sheet.getRange(1, 1, lastRow, 7).getValues() : [];
   return parseTransactions_(rows);
+}
+
+function getTransactionHistory_(token, anno, entity) {
+  requireSession_(token);
+  const throughYear = String(anno || '');
+  if (!/^\d{4}$/.test(throughYear)) {
+    throw new Error('Anno non valido.');
+  }
+  const normalizedEntity = entity || 'private';
+  ledgerSheetName_(throughYear, normalizedEntity);
+  const spreadsheet = getSpreadsheetForSession_(token);
+  if (!spreadsheet) {
+    throw new Error('Il progetto Apps Script deve essere collegato al foglio contabile.');
+  }
+
+  const yearPattern = normalizedEntity === 'business' ? /^AZIENDA_(\d{4})$/ : /^(\d{4})$/;
+  const sheets = spreadsheet.getSheets()
+    .map(sheet => ({ sheet: sheet, match: sheet.getName().match(yearPattern) }))
+    .filter(item => item.match && Number(item.match[1]) <= Number(throughYear))
+    .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
+  const transactions = sheets.flatMap(item => {
+    const lastRow = item.sheet.getLastRow();
+    return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
+  });
+
+  return {
+    years: sheets.map(item => Number(item.match[1])),
+    transactions: transactions
+  };
 }
 
 function appendTransaction_(token, transaction, entity) {

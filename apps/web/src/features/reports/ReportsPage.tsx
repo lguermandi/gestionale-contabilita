@@ -1,88 +1,32 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import { fetchTransactions } from '../../api/ledgerApi'
-import { buildAccountingReports, type LedgerTransaction } from '../../domain/accounting'
-import { getLocalTransactions } from '../../offline/offlineLedger'
+import { Fragment, useMemo, useState } from 'react'
+import { buildAccountingReportsForYear } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
-import { useProfileStore } from '../../stores/profileStore'
 import { buildBalanceSheetSections, type BalanceAccountRow, type BalanceSection, type BalanceRow } from './balanceSheet'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const balanceAmount = (amount: number | null) => amount === null ? '—' : amount === 0 ? '—' : euro.format(amount)
-const noTransactions: LedgerTransaction[] = []
 
 export function ReportsPage() {
   const transactions = useLedgerStore((state) => state.transactions)
+  const historyTransactions = useLedgerStore((state) => state.historyTransactions)
+  const historyLoading = useLedgerStore((state) => state.historyLoading)
+  const historyError = useLedgerStore((state) => state.historyError)
   const year = useLedgerStore((state) => state.selectedYear)
   const loading = useLedgerStore((state) => state.loading)
   const error = useLedgerStore((state) => state.error)
   const token = useGasSessionStore((state) => state.token)
-  const entity = useProfileStore((state) => state.activeProfile)
-  const reports = useMemo(() => buildAccountingReports(transactions), [transactions])
+  const reportTransactions = useMemo(() => [...historyTransactions, ...transactions], [historyTransactions, transactions])
+  const reports = useMemo(() => buildAccountingReportsForYear(reportTransactions, year), [reportTransactions, year])
   const [view, setView] = useState<'sp' | 'ce' | 'liquidita'>('sp')
-  const [previousResult, setPreviousResult] = useState<{
-    requestKey: string | null
-    status: 'ready' | 'error'
-    transactions: LedgerTransaction[]
-    error: string
-  }>({ requestKey: null, status: 'error', transactions: [], error: '' })
-  const previousRequestKey = useMemo(() => `${year - 1}:${entity}:${token ?? 'offline'}`, [entity, token, year])
-  const previousStatus = previousResult.requestKey === previousRequestKey ? previousResult.status : 'loading'
-  const previousTransactions = previousResult.requestKey === previousRequestKey ? previousResult.transactions : noTransactions
-  const previousError = previousResult.requestKey === previousRequestKey ? previousResult.error : ''
+  const previousStatus = historyLoading ? 'loading' : historyError ? 'error' : 'ready'
+  const previousError = historyError ?? ''
   const { statoPatrimoniale, contoEconomico, liquidita } = reports
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadPreviousYear() {
-      try {
-        const localRecords = await getLocalTransactions(year - 1, entity)
-        const local = localRecords.map((record) => record.transaction)
-        if (!token && !local.length) {
-          if (!cancelled) {
-            setPreviousResult({
-              requestKey: previousRequestKey,
-              status: 'error',
-              transactions: [],
-              error: 'Accedi a GAS per caricare i dati dell’esercizio precedente.',
-            })
-          }
-          return
-        }
-        let loaded = local
-        let comparisonError = ''
-        if (token) {
-          try {
-            const remote = await fetchTransactions(year - 1, token, entity)
-            const merged = new Map(remote.map((transaction) => [transaction.id, transaction]))
-            local.forEach((transaction) => merged.set(transaction.id, transaction))
-            loaded = [...merged.values()]
-          } catch (loadError) {
-            comparisonError = loadError instanceof Error ? loadError.message : 'Impossibile caricare il confronto con l’esercizio precedente.'
-            if (!local.length) throw loadError
-          }
-        }
-        if (!cancelled) {
-          setPreviousResult({ requestKey: previousRequestKey, status: 'ready', transactions: loaded, error: comparisonError })
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setPreviousResult({
-            requestKey: previousRequestKey,
-            status: 'error',
-            transactions: [],
-            error: loadError instanceof Error ? loadError.message : 'Impossibile caricare il confronto con l’esercizio precedente.',
-          })
-        }
-      }
-    }
-
-    void loadPreviousYear()
-    return () => { cancelled = true }
-  }, [entity, previousRequestKey, token, year])
-
-  const previousReports = useMemo(() => buildAccountingReports(previousTransactions), [previousTransactions])
+  const previousReports = useMemo(
+    () => buildAccountingReportsForYear(historyTransactions, year - 1),
+    [historyTransactions, year],
+  )
   const previousBalance = previousReports.statoPatrimoniale
   const balanceSections = buildBalanceSheetSections(
     signedBalanceRows(statoPatrimoniale.attivita, statoPatrimoniale.passivita),
@@ -157,16 +101,8 @@ export function ReportsPage() {
           {previousStatus === 'loading' && <p className="border-t border-stone-200 px-5 py-3 text-xs text-stone-500">Caricamento confronto {year - 1}…</p>}
           {previousStatus === 'error' && (
             <p className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900" role="status">
-              Confronto {year - 1} non disponibile: {previousError}
+              Saldo di apertura e confronto {year - 1} incompleti: {previousError}
             </p>
-          )}
-          {previousStatus === 'ready' && previousError && (
-            <p className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900" role="status">
-              Impossibile aggiornare il confronto {year - 1}; sono mostrati i dati locali disponibili. {previousError}
-            </p>
-          )}
-          {previousStatus === 'ready' && !token && (
-            <p className="border-t border-stone-200 px-5 py-3 text-xs text-stone-500">Confronto {year - 1} basato sui dati presenti in questo dispositivo.</p>
           )}
         </div>
       ) : view === 'ce' ? (

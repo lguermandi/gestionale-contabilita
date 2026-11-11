@@ -44,6 +44,12 @@ export async function getLocalTransactions(year: number, entity: LedgerEntity): 
     return offlineLedger.records.where('[entity+year]').equals([entity, year]).sortBy('createdAt')
 }
 
+export async function getLocalTransactionHistory(throughYear: number, entity: LedgerEntity): Promise<LocalLedgerRecord[]> {
+    return offlineLedger.records.toCollection()
+        .filter((record) => record.entity === entity && record.year <= throughYear)
+        .sortBy('createdAt')
+}
+
 export async function getPendingTransactions(): Promise<LocalLedgerRecord[]> {
     return offlineLedger.records.where('status').equals('pending').sortBy('createdAt')
 }

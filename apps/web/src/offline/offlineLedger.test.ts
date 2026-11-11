@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getLocalTransactions, getPendingCount, offlineLedger, queueTransaction, syncPendingTransactions } from './offlineLedger'
+import { getLocalTransactionHistory, getLocalTransactions, getPendingCount, offlineLedger, queueTransaction, syncPendingTransactions } from './offlineLedger'
 import type { LedgerTransaction } from '../domain/accounting'
 
 const record: LedgerTransaction = {
@@ -29,6 +29,14 @@ describe('coda offline della partita doppia', () => {
         expect((await getLocalTransactions(2026, 'business')).map((item) => item.status)).toEqual(['pending'])
         expect(await getLocalTransactions(2026, 'private')).toEqual([])
         expect(await getLocalTransactions(2025, 'business')).toEqual([])
+    })
+
+    it('carica lo storico locale fino all’esercizio precedente solo per il profilo richiesto', async () => {
+        await queueTransaction({ ...record, id: '2025-transaction', data: '2025-03-01' }, 'private')
+        await queueTransaction(record, 'private')
+        await queueTransaction({ ...record, id: 'business-transaction', data: '2025-02-01' }, 'business')
+
+        expect((await getLocalTransactionHistory(2025, 'private')).map((item) => item.transaction.id)).toEqual(['2025-transaction'])
     })
 
     it('mantiene la coda offline e marca sincronizzate le scritture inviate', async () => {

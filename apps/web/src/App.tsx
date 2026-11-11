@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom'
-import { buildAccountingReports } from './domain/accounting'
+import { buildAccountingReportsForYear } from './domain/accounting'
 import { OfflineSyncController } from './offline/OfflineSyncController'
 import { getWorkspaceSetupStatus, initializeWorkspace, loginToGas, logoutFromGas } from './api/ledgerApi'
 import {
@@ -330,13 +330,17 @@ function AppShell() {
   const year = useLedgerStore((state) => state.selectedYear)
   const setYear = useLedgerStore((state) => state.setSelectedYear)
   const transactions = useLedgerStore((state) => state.transactions)
+  const historyTransactions = useLedgerStore((state) => state.historyTransactions)
   const refresh = useLedgerStore((state) => state.refresh)
   const ledgerError = useLedgerStore((state) => state.error)
   const online = useOfflineSyncStore((state) => state.online)
   const syncing = useOfflineSyncStore((state) => state.syncing)
   const pending = useOfflineSyncStore((state) => state.pending)
   const token = useGasSessionStore((state) => state.token)
-  const reports = useMemo(() => buildAccountingReports(transactions), [transactions])
+  const reports = useMemo(
+    () => buildAccountingReportsForYear([...historyTransactions, ...transactions], year),
+    [historyTransactions, transactions, year],
+  )
   const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() + 1 - index)
   const visibleNavigation = activeProfile === 'business'
     ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, { label: 'Spese', to: '/spese' }, navigation[3]]

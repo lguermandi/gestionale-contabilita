@@ -68,8 +68,13 @@ contenuto semplice evita il preflight OPTIONS; `doPost` legge il JSON da
 La risposta del deployment è leggibile dal browser dopo il redirect GAS.
 
 Il deployment deve includere le azioni JSON `login`, `getWorkspaceSetupStatus`,
-`initializeWorkspace`, `getTransactions`, `appendTransaction`, `getInvoices` e
-`issueInvoice` implementate in `API.js`.
+`initializeWorkspace`, `getTransactions`, `getTransactionHistory`,
+`appendTransaction`, `getInvoices` e `issueInvoice` implementate in `API.js`.
+
+`getTransactionHistory` restituisce i movimenti dei fogli annuali esistenti fino
+all'anno richiesto; il prospetto patrimoniale li usa per riportare i saldi di
+chiusura come saldi iniziali dell'esercizio successivo.
+
 Dopo `clasp push`, crea una nuova versione del deployment Web App. L'accesso
 usa le credenziali GAS configurate sopra; il token di sessione resta in memoria
 nel client e scade dopo sei ore.

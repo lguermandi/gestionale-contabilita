@@ -5,7 +5,8 @@ import { useLedgerStore } from '../../stores/ledgerStore'
 import { buildBalanceSheetSections, type BalanceAccountRow, type BalanceSection, type BalanceRow } from './balanceSheet'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
-const balanceAmount = (amount: number | null) => amount === null ? '—' : amount === 0 ? '—' : euro.format(amount)
+const balanceNumber = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const balanceAmount = (amount: number | null) => amount === null ? '—' : amount === 0 ? '—' : balanceNumber.format(amount)
 
 export function ReportsPage() {
   const transactions = useLedgerStore((state) => state.transactions)
@@ -95,7 +96,7 @@ export function ReportsPage() {
             {!hasBalanceRows ? 'Nessun saldo patrimoniale da esporre' : Math.abs(totalActivity - totalLiability) < 0.01 ? 'Stato Patrimoniale quadrato' : 'Stato Patrimoniale da verificare'}
             </p>
             {hasBalanceRows && Math.abs(totalActivity - totalLiability) >= 0.01 && (
-            <p className="text-sm text-rose-700">Differenza: {euro.format(totalActivity - totalLiability)}</p>
+            <p className="text-sm text-rose-700">Differenza: {balanceAmount(totalActivity - totalLiability)}</p>
             )}
           </div>
           {previousStatus === 'loading' && <p className="border-t border-stone-200 px-5 py-3 text-xs text-stone-500">Caricamento confronto {year - 1}…</p>}

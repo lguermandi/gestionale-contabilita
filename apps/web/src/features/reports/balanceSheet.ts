@@ -99,6 +99,7 @@ function classifyAccount(conto: string, saldo: number): { side: 'activity' | 'li
     return liability(0, 3)
   }
   if (/fond[oi].*(rischi|oneri|imposte|tasse)|f\.?\s*do.*(rischi|oneri|imposte|tasse)|rischi|oneri|accantonament/.test(name)) return liability(1, 0)
+  if (/titoli? di debito pubblico/.test(name)) return activity(0, 1)
   if (/ratei|risconti/.test(name)) {
     if (/attiv[oi]/.test(name)) return saldo > 0 ? activity(2, 0) : liability(3, 0)
     if (/passiv[oi]/.test(name)) return liability(3, 0)

@@ -60,4 +60,16 @@ describe('classificazione dello stato patrimoniale', () => {
     expect(findAccount(report.liability, 'Carta YOU')).toMatchObject({ corrente: 820.72 })
     expect(findAccount(report.liability, 'F.do imposte e tasse')).toMatchObject({ corrente: 17.5 })
   })
+
+  it('colloca i titoli di debito pubblico tra le immobilizzazioni finanziarie', () => {
+    const report = buildBalanceSheetSections([
+      { conto: 'Titoli di debito pubblico', saldo: 2076.1 },
+    ], [])
+
+    expect(report.activity[0].subsections[1].rows[0]).toMatchObject({
+      conto: 'Titoli di debito pubblico',
+      corrente: 2076.1,
+    })
+    expect(findAccount(report.liability, 'Titoli di debito pubblico')).toBeUndefined()
+  })
 })

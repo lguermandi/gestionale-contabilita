@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { buildAccountingReports } from './domain/accounting'
 import { OfflineSyncController } from './offline/OfflineSyncController'
-import { loginToGas, logoutFromGas } from './api/ledgerApi'
+import { getWorkspaceSetupStatus, initializeWorkspace, loginToGas, logoutFromGas } from './api/ledgerApi'
 import { useGasSessionStore } from './stores/gasSessionStore'
 import { useLedgerStore } from './stores/ledgerStore'
 import { useOfflineSyncStore } from './stores/offlineSyncStore'
@@ -96,6 +96,140 @@ function GasSessionControl() {
   )
 }
 
+function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
+  const token = useGasSessionStore((state) => state.token)
+  const clearToken = useGasSessionStore((state) => state.clearToken)
+  const [workspaceStatus, setWorkspaceStatus] = useState<{
+    token: string
+    setupRequired: boolean
+    error?: string
+  } | null>(null)
+  const [parentFolder, setParentFolder] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [setupError, setSetupError] = useState('')
+  const [completedWorkspace, setCompletedWorkspace] = useState<{
+    token: string
+    folderUrl: string
+    spreadsheetUrl: string
+  } | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+
+  useEffect(() => {
+    if (!token) return
+
+    let active = true
+    getWorkspaceSetupStatus(token)
+      .then(({ setupRequired: required }) => {
+        if (active) setWorkspaceStatus({ token, setupRequired: required })
+      })
+      .catch((statusError: unknown) => {
+        if (!active) return
+        const message = statusError instanceof Error ? statusError.message : 'Impossibile verificare lo spazio aziendale.'
+        setWorkspaceStatus({ token, setupRequired: false, error: message })
+        if (message.includes('SESSION_EXPIRED')) clearToken()
+      })
+    return () => { active = false }
+  }, [clearToken, retryCount, token])
+
+  const currentStatus = workspaceStatus?.token === token ? workspaceStatus : null
+  const checking = Boolean(token && !currentStatus)
+  const setupRequired = currentStatus?.setupRequired ?? false
+  const statusError = currentStatus?.error ?? ''
+  const currentCompletedWorkspace = completedWorkspace?.token === token ? completedWorkspace : null
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token) return
+    setSubmitting(true)
+    setSetupError('')
+    try {
+      const workspace = await initializeWorkspace(token, parentFolder.trim())
+      setWorkspaceStatus({ token, setupRequired: workspace.setupRequired })
+      setCompletedWorkspace({ token, folderUrl: workspace.folderUrl, spreadsheetUrl: workspace.spreadsheetUrl })
+      onReady()
+    } catch (setupError) {
+      setSetupError(setupError instanceof Error ? setupError.message : 'Impossibile creare lo spazio aziendale.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleWorkspaceLogout() {
+    if (!token) return
+    try {
+      await logoutFromGas(token)
+      clearToken()
+    } catch (logoutError) {
+      setSetupError(logoutError instanceof Error ? logoutError.message : 'Uscita da GAS non riuscita.')
+    }
+  }
+
+  if (!token || checking || (!setupRequired && !currentCompletedWorkspace && !statusError)) return null
+
+  if (statusError && !setupRequired && !currentCompletedWorkspace) {
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/50 p-4">
+        <section className="w-full max-w-lg bg-white p-6 shadow-xl" role="alert">
+          <h2 className="text-lg font-semibold text-stone-900">Verifica dello spazio aziendale non riuscita</h2>
+          <p className="mt-2 text-sm text-rose-700">{statusError}</p>
+          <button type="button" className="mt-5 min-h-10 bg-emerald-800 px-4 text-sm font-medium text-white" onClick={() => setRetryCount((count) => count + 1)}>
+            Riprova
+          </button>
+        </section>
+      </div>
+    )
+  }
+
+  if (!setupRequired) {
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/50 p-4">
+        <section className="w-full max-w-lg bg-white p-6 shadow-xl" role="status">
+          <h2 className="text-lg font-semibold text-stone-900">Spazio aziendale creato</h2>
+          <p className="mt-2 text-sm text-stone-600">Cartelle e registri sono pronti.</p>
+          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+            <a className="font-medium text-emerald-800 underline" href={currentCompletedWorkspace?.folderUrl} target="_blank" rel="noreferrer">Apri cartella</a>
+            <a className="font-medium text-emerald-800 underline" href={currentCompletedWorkspace?.spreadsheetUrl} target="_blank" rel="noreferrer">Apri foglio contabile</a>
+          </div>
+          <button type="button" className="mt-5 min-h-10 bg-emerald-800 px-4 text-sm font-medium text-white" onClick={() => setCompletedWorkspace(null)}>
+            Continua
+          </button>
+        </section>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/50 p-4">
+      <section className="w-full max-w-lg bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="workspace-setup-title">
+        <h2 id="workspace-setup-title" className="text-lg font-semibold text-stone-900">Crea lo spazio aziendale</h2>
+        <p className="mt-2 text-sm text-stone-600">
+          Indica la cartella Drive in cui creare automaticamente registri, cartelle per fatture, spese e documenti.
+          Il deployment GAS deve poter accedere alla cartella.
+        </p>
+        <form onSubmit={handleSubmit} className="mt-5 grid gap-3">
+          <label className="text-sm text-stone-700" htmlFor="workspace-parent-folder">Link o ID della cartella Drive</label>
+          <input
+            id="workspace-parent-folder"
+            autoComplete="url"
+            className="min-h-11 w-full border border-stone-300 px-3 text-sm text-stone-900"
+            value={parentFolder}
+            onChange={(event) => setParentFolder(event.target.value)}
+            placeholder="https://drive.google.com/drive/folders/…"
+            required
+          />
+          {setupError && <p className="text-sm text-rose-700" role="alert">{setupError}</p>}
+          <button type="submit" disabled={submitting} className="min-h-11 bg-emerald-800 px-4 text-sm font-medium text-white disabled:opacity-50">
+            {submitting ? 'Creazione in corso…' : 'Crea cartelle e fogli'}
+          </button>
+          <button type="button" disabled={submitting} className="min-h-10 text-sm text-stone-600 underline disabled:opacity-50" onClick={() => void handleWorkspaceLogout()}>
+            Esci e accedi con un altro account
+          </button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 function AppShell() {
   const activeProfile = useProfileStore((state) => state.activeProfile)
   const setActiveProfile = useProfileStore((state) => state.setActiveProfile)
@@ -165,6 +299,8 @@ function AppShell() {
           </label>
           <GasSessionControl />
         </header>
+
+        <WorkspaceSetupGate onReady={() => void refresh(year, token, activeProfile)} />
 
         <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-5 py-10 text-sm text-stone-500 md:px-8">Caricamento vista…</div>}>
           <Routes>

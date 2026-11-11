@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchCreditNotes, fetchCustomers, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactions, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
+import { fetchCreditNotes, fetchCustomers, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactions, getWorkspaceSetupStatus, initializeWorkspace, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
 import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft } from '../domain/invoicing'
 import type { ExpenseDraft } from '../domain/expenses'
@@ -66,13 +66,15 @@ describe('client API GAS', () => {
 
   it('invia ogni operazione come JSON text/plain direttamente a GAS', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => (
-      new Response(JSON.stringify({ status: 200, data: { token: 'sessione', expiresIn: 2592000 } }), {
+      new Response(JSON.stringify({ status: 200, data: { token: 'sessione', expiresIn: 2592000, setupRequired: false } }), {
         headers: { 'Content-Type': 'application/json' },
       })
     ))
     vi.stubGlobal('fetch', fetchMock)
 
     await loginToGas('utente', 'password')
+    await getWorkspaceSetupStatus('sessione')
+    await initializeWorkspace('sessione', 'https://drive.google.com/drive/folders/cartella')
     await fetchTransactions(2026, 'sessione', 'private')
     await saveTransaction('sessione', transaction, 'business')
     await fetchInvoices(2026, 'sessione')
@@ -87,7 +89,7 @@ describe('client API GAS', () => {
     await issueInvoice('sessione', invoice)
     await logoutFromGas('sessione')
 
-    expect(fetchMock).toHaveBeenCalledTimes(14)
+    expect(fetchMock).toHaveBeenCalledTimes(16)
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec')
       expect(init?.method).toBe('POST')
@@ -98,6 +100,8 @@ describe('client API GAS', () => {
     const payloads = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>)
     expect(payloads.map((payload) => payload.action)).toEqual([
       'login',
+      'getWorkspaceSetupStatus',
+      'initializeWorkspace',
       'getTransactions',
       'appendTransaction',
       'getInvoices',
@@ -112,19 +116,21 @@ describe('client API GAS', () => {
       'issueInvoice',
       'logout',
     ])
-    expect(payloads[1]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private' })
-    expect(payloads[2]).toMatchObject({ token: 'sessione', transaction, entity: 'business' })
-    expect(payloads[3]).toMatchObject({ anno: 2026, token: 'sessione' })
-    expect(payloads[4]).toMatchObject({ token: 'sessione' })
-    expect(payloads[5]).toMatchObject({ token: 'sessione', customer })
-    expect(payloads[6]).toMatchObject({ token: 'sessione', anno: 2026 })
-    expect(payloads[7]).toMatchObject({ token: 'sessione', creditNote })
-    expect(payloads[8]).toMatchObject({ token: 'sessione' })
-    expect(payloads[9]).toMatchObject({ token: 'sessione', supplier: customer })
-    expect(payloads[10]).toMatchObject({ token: 'sessione', anno: 2026 })
-    expect(payloads[11]).toMatchObject({ token: 'sessione', expense })
-    expect(payloads[12]).toMatchObject({ token: 'sessione', invoice })
-    expect(payloads[13]).toMatchObject({ token: 'sessione' })
+    expect(payloads[1]).toMatchObject({ token: 'sessione' })
+    expect(payloads[2]).toMatchObject({ token: 'sessione', parentFolder: 'https://drive.google.com/drive/folders/cartella' })
+    expect(payloads[3]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private' })
+    expect(payloads[4]).toMatchObject({ token: 'sessione', transaction, entity: 'business' })
+    expect(payloads[5]).toMatchObject({ anno: 2026, token: 'sessione' })
+    expect(payloads[6]).toMatchObject({ token: 'sessione' })
+    expect(payloads[7]).toMatchObject({ token: 'sessione', customer })
+    expect(payloads[8]).toMatchObject({ token: 'sessione', anno: 2026 })
+    expect(payloads[9]).toMatchObject({ token: 'sessione', creditNote })
+    expect(payloads[10]).toMatchObject({ token: 'sessione' })
+    expect(payloads[11]).toMatchObject({ token: 'sessione', supplier: customer })
+    expect(payloads[12]).toMatchObject({ token: 'sessione', anno: 2026 })
+    expect(payloads[13]).toMatchObject({ token: 'sessione', expense })
+    expect(payloads[14]).toMatchObject({ token: 'sessione', invoice })
+    expect(payloads[15]).toMatchObject({ token: 'sessione' })
   })
 
   it('propaga gli errori applicativi restituiti da GAS', async () => {

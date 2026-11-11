@@ -1,10 +1,14 @@
 const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 const SESSION_KEY = 'dashboard-session';
 const loginScreen = document.getElementById('login-screen');
+const workspaceSetupScreen = document.getElementById('workspace-setup-screen');
 const appShell = document.getElementById('app-shell');
 const loginForm = document.getElementById('login-form');
 const loginError = document.getElementById('login-error');
 const loginButton = document.getElementById('login-button');
+const workspaceSetupForm = document.getElementById('workspace-setup-form');
+const workspaceSetupError = document.getElementById('workspace-setup-error');
+const workspaceSetupButton = document.getElementById('workspace-setup-button');
 const yearSelect = document.getElementById('selettore-anno');
 const chartSvg = document.getElementById('storico-chart');
 const chartLegend = document.getElementById('storico-legend');
@@ -32,17 +36,33 @@ function callDashboardData(token, year) {
   });
 }
 
+function callInitializeWorkspace(token, parentFolder) {
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
+      .initializeWorkspace(token, parentFolder);
+  });
+}
+
 function showLogin(message) {
   sessionToken = '';
   localStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem(SESSION_KEY);
   appShell.hidden = true;
+  workspaceSetupScreen.hidden = true;
   loginScreen.hidden = false;
   loginError.textContent = message || '';
 }
 
+function showWorkspaceSetup(message) {
+  loginScreen.hidden = true;
+  appShell.hidden = true;
+  workspaceSetupScreen.hidden = false;
+  workspaceSetupError.textContent = message || '';
+}
+
 function showDashboard() {
   loginScreen.hidden = true;
+  workspaceSetupScreen.hidden = true;
   appShell.hidden = false;
 }
 
@@ -271,6 +291,10 @@ async function loadDashboard() {
       showLogin('Sessione scaduta. Accedi di nuovo.');
       return;
     }
+    if (message.includes('BUSINESS_SETUP_REQUIRED')) {
+      showWorkspaceSetup('');
+      return;
+    }
     setStatus('Errore nel caricamento', '#f44336');
     console.error('Errore nel caricamento dei dati contabili:', error);
   }
@@ -289,6 +313,10 @@ loginForm.addEventListener('submit', async event => {
     sessionToken = session.token;
     localStorage.setItem(SESSION_KEY, sessionToken);
     passwordInput.value = '';
+    if (session.setupRequired) {
+      showWorkspaceSetup('');
+      return;
+    }
     showDashboard();
     await loadDashboard();
   } catch (error) {
@@ -296,6 +324,23 @@ loginForm.addEventListener('submit', async event => {
     passwordInput.value = '';
   } finally {
     loginButton.disabled = false;
+  }
+});
+
+workspaceSetupForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  workspaceSetupError.textContent = '';
+  workspaceSetupButton.disabled = true;
+  const parentFolder = document.getElementById('workspace-parent-folder').value.trim();
+  try {
+    await callInitializeWorkspace(sessionToken, parentFolder);
+    document.getElementById('workspace-parent-folder').value = '';
+    showDashboard();
+    await loadDashboard();
+  } catch (error) {
+    workspaceSetupError.textContent = String(error && error.message || 'Impossibile creare lo spazio aziendale.');
+  } finally {
+    workspaceSetupButton.disabled = false;
   }
 });
 

@@ -3,6 +3,7 @@ const AUTH_SALT_PROPERTY = 'APP_PASSWORD_SALT';
 const AUTH_HASH_PROPERTY = 'APP_PASSWORD_HASH';
 const AUTH_SETUP_USERNAME_PROPERTY = 'APP_SETUP_USERNAME';
 const AUTH_SETUP_PASSWORD_PROPERTY = 'APP_SETUP_PASSWORD';
+const AUTH_USER_PREFIX = 'APP_USER_';
 const AUTH_HASH_ITERATIONS = 60000;
 const AUTH_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const AUTH_SESSION_PREFIX = 'auth_';
@@ -18,14 +19,7 @@ function login(username, password) {
   }
 
   const properties = PropertiesService.getScriptProperties();
-  const savedUsername = properties.getProperty(AUTH_USERNAME_PROPERTY);
-  const salt = properties.getProperty(AUTH_SALT_PROPERTY);
-  const savedHash = properties.getProperty(AUTH_HASH_PROPERTY);
-
-  if (!savedUsername || !salt || !savedHash) {
-    throw new Error('Accesso non configurato. Segui le istruzioni di configurazione.');
-  }
-
+  const userKey = userPropertyKey_(normalizedUsername);
   const attemptKey = `login_attempts_${sha256Hex_(normalizedUsername)}`;
   const cache = CacheService.getScriptCache();
   const attempts = Number(cache.get(attemptKey) || 0);
@@ -33,9 +27,11 @@ function login(username, password) {
     throw new Error('Troppi tentativi. Riprova tra 15 minuti.');
   }
 
-  const candidateHash = derivePasswordHash_(normalizedPassword, salt);
-  const valid = normalizedUsername === savedUsername && constantTimeEquals_(candidateHash, savedHash);
-  if (!valid) {
+  const user = getUserRecord_(properties, normalizedUsername);
+  const candidateHash = user
+    ? derivePasswordHash_(normalizedPassword, user.salt)
+    : derivePasswordHash_(normalizedPassword, 'invalid-user-salt');
+  if (!user || !constantTimeEquals_(candidateHash, user.hash)) {
     cache.put(attemptKey, String(attempts + 1), AUTH_ATTEMPT_SECONDS);
     throw new Error('Nome utente o password non validi.');
   }
@@ -45,9 +41,16 @@ function login(username, password) {
   removeExpiredSessions_(properties);
   properties.setProperty(
     AUTH_SESSION_PREFIX + token,
-    String(Date.now() + AUTH_SESSION_SECONDS * 1000)
+    JSON.stringify({
+      expiresAt: Date.now() + AUTH_SESSION_SECONDS * 1000,
+      userKey: userKey
+    })
   );
-  return { token: token, expiresIn: AUTH_SESSION_SECONDS };
+  return {
+    token: token,
+    expiresIn: AUTH_SESSION_SECONDS,
+    setupRequired: !user.workspaceReady
+  };
 }
 
 function logout(token) {
@@ -65,14 +68,14 @@ function configureCredentials_() {
     throw new Error('Imposta un nome utente da 3 a 128 caratteri e una password da 12 a 128 caratteri.');
   }
 
-  const salt = Utilities.getUuid() + Utilities.getUuid();
-  const hash = derivePasswordHash_(password, salt);
+  const userKey = userPropertyKey_(username);
+  const existingUser = getUserRecord_(properties, username);
+  const record = existingUser || { username: username };
+  record.username = username;
+  record.salt = Utilities.getUuid() + Utilities.getUuid();
+  record.hash = derivePasswordHash_(password, record.salt);
 
-  properties.setProperties({
-    [AUTH_USERNAME_PROPERTY]: username,
-    [AUTH_SALT_PROPERTY]: salt,
-    [AUTH_HASH_PROPERTY]: hash
-  });
+  properties.setProperty(userKey, JSON.stringify(record));
   properties.deleteProperty(AUTH_SETUP_USERNAME_PROPERTY);
   properties.deleteProperty(AUTH_SETUP_PASSWORD_PROPERTY);
 }
@@ -83,23 +86,103 @@ function requireSession_(token) {
   }
   const properties = PropertiesService.getScriptProperties();
   const sessionKey = AUTH_SESSION_PREFIX + token;
-  const expiresAt = Number(properties.getProperty(sessionKey));
+  const rawSession = properties.getProperty(sessionKey);
+  let session;
+  try {
+    session = JSON.parse(rawSession || 'null');
+  } catch (error) {
+    session = null;
+  }
+
+  if (typeof session === 'number') {
+    const username = String(properties.getProperty(AUTH_USERNAME_PROPERTY) || '').trim();
+    const user = getUserRecord_(properties, username);
+    if (user) {
+      session = { expiresAt: session, userKey: userPropertyKey_(username) };
+      properties.setProperty(sessionKey, JSON.stringify(session));
+    }
+  }
+
+  const expiresAt = Number(session && session.expiresAt);
   const now = Date.now();
-  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= now || !session.userKey) {
     properties.deleteProperty(sessionKey);
     throw new Error('SESSION_EXPIRED');
   }
-  if (expiresAt - now <= AUTH_SESSION_REFRESH_THRESHOLD_SECONDS * 1000) {
-    properties.setProperty(sessionKey, String(now + AUTH_SESSION_SECONDS * 1000));
+
+  const rawUser = properties.getProperty(session.userKey);
+  let user;
+  try {
+    user = JSON.parse(rawUser || 'null');
+  } catch (error) {
+    user = null;
   }
+  if (!user || !user.username || !user.salt || !user.hash) {
+    properties.deleteProperty(sessionKey);
+    throw new Error('SESSION_EXPIRED');
+  }
+
+  if (expiresAt - now <= AUTH_SESSION_REFRESH_THRESHOLD_SECONDS * 1000) {
+    session.expiresAt = now + AUTH_SESSION_SECONDS * 1000;
+    properties.setProperty(sessionKey, JSON.stringify(session));
+  }
+  return { userKey: session.userKey, user: user };
+}
+
+function saveSessionUser_(session) {
+  PropertiesService.getScriptProperties().setProperty(
+    session.userKey,
+    JSON.stringify(session.user)
+  );
+}
+
+function getUserRecord_(properties, username) {
+  if (!username) return null;
+  const key = userPropertyKey_(username);
+  const savedUser = properties.getProperty(key);
+  if (savedUser) {
+    try {
+      return JSON.parse(savedUser);
+    } catch (error) {
+      throw new Error('Configurazione dell’account non valida. Contatta l’amministratore.');
+    }
+  }
+
+  if (username !== String(properties.getProperty(AUTH_USERNAME_PROPERTY) || '').trim()) {
+    return null;
+  }
+  const salt = properties.getProperty(AUTH_SALT_PROPERTY);
+  const hash = properties.getProperty(AUTH_HASH_PROPERTY);
+  if (!salt || !hash) return null;
+
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const user = {
+    username: username,
+    salt: salt,
+    hash: hash,
+    spreadsheetId: spreadsheet ? spreadsheet.getId() : '',
+    workspaceReady: Boolean(spreadsheet)
+  };
+  properties.setProperty(key, JSON.stringify(user));
+  return user;
+}
+
+function userPropertyKey_(username) {
+  return AUTH_USER_PREFIX + sha256Hex_(username);
 }
 
 function removeExpiredSessions_(properties) {
   const now = Date.now();
   const allProperties = properties.getProperties();
   Object.keys(allProperties).forEach(key => {
-    if (!key.startsWith(AUTH_SESSION_PREFIX)) return;
-    const expiresAt = Number(allProperties[key]);
+    if (key.indexOf(AUTH_SESSION_PREFIX) !== 0) return;
+    let expiresAt;
+    try {
+      const session = JSON.parse(allProperties[key]);
+      expiresAt = typeof session === 'number' ? session : Number(session && session.expiresAt);
+    } catch (error) {
+      expiresAt = Number(allProperties[key]);
+    }
     if (!Number.isFinite(expiresAt) || expiresAt <= now) {
       properties.deleteProperty(key);
     }

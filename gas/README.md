@@ -6,14 +6,26 @@ al progetto GAS.
 
 ## Configurazione iniziale
 
-1. Apri il progetto Apps Script associato al file `.clasp.json` locale e conferma che sia collegato al foglio contabile.
-2. In **Impostazioni progetto → Proprietà script**, aggiungi temporaneamente:
+1. Apri il progetto Apps Script associato al file `.clasp.json` locale. Un account già configurato prima di questa versione mantiene il foglio contabile collegato; ogni account provisionato da ora in poi sceglie la propria destinazione e riceve un foglio separato.
+2. Per ogni account autorizzato, in **Impostazioni progetto → Proprietà script**, aggiungi temporaneamente:
    - `APP_SETUP_USERNAME`: il nome utente scelto.
    - `APP_SETUP_PASSWORD`: una password nuova di almeno 12 caratteri.
-3. Nell'editor Apps Script esegui `configureCredentials_`. Lo script salva la password come hash PBKDF2 con salt e rimuove le due proprietà temporanee. Non inviare né salvare la password nel repository.
-4. Esegui `authorizeSpreadsheet_` e autorizza l'accesso al foglio con l'account proprietario del progetto.
+3. Nell'editor Apps Script esegui `configureCredentials_`. La funzione crea o aggiorna solo l'account indicato, salva la password come hash PBKDF2 con salt e rimuove le due proprietà temporanee. Ripeti i passaggi 2-3 per ogni nuovo account provisionato dall'amministratore. Non inviare né salvare le password nel repository.
+4. Esegui `authorizeSpreadsheet_` e autorizza l'accesso a Drive e ai fogli Google con l'account proprietario del progetto.
 5. Pubblica da **Deploy → New deployment → Web app** con esecuzione come te. L'accesso del deployment può restare anonimo perché i metodi che leggono dati richiedono il login dell'app.
 6. Imposta `VITE_API_BASE_URL` all'URL `/exec` pubblico del deployment.
+
+Al primo accesso di un account senza spazio dati, l'utente inserisce il link o l'ID
+di una cartella Drive padre. La cartella deve essere accessibile all'account
+proprietario del deployment GAS: la creazione avviene nel Drive di tale account,
+non nel Drive personale dell'utente che ha effettuato il login. GAS crea sotto
+la destinazione una cartella `username - Gestionale contabile`, con le
+sottocartelle `Contabilità`, `Fatture`, `Spese` e `Documenti/Allegati spese`.
+Nella cartella `Contabilità` crea il foglio Google `Gestionale contabile -
+username`, con registri annuali, fatture, note di credito, clienti, fornitori e
+spese. Le successive operazioni dell'account sono instradate al proprio foglio.
+Gli account provisionati successivamente non condividono i dati degli altri
+utenti. L'account già collegato al foglio contabile mantiene i dati esistenti.
 
 Per aggiornare il codice, esegui `clasp push` dalla cartella del progetto e crea una nuova versione del deployment Web App. I file `.clasp.json` e `Config.js` contengono riferimenti al progetto e ai dati personali: non aggiungerli al repository.
 
@@ -25,8 +37,9 @@ contenuto semplice evita il preflight OPTIONS; `doPost` legge il JSON da
 `event.postData.contents` e restituisce JSON con `ContentService.MimeType.JSON`.
 La risposta del deployment è leggibile dal browser dopo il redirect GAS.
 
-Il deployment deve includere le azioni JSON `login`, `getTransactions`,
-`appendTransaction`, `getInvoices` e `issueInvoice` implementate in `API.js`.
+Il deployment deve includere le azioni JSON `login`, `getWorkspaceSetupStatus`,
+`initializeWorkspace`, `getTransactions`, `appendTransaction`, `getInvoices` e
+`issueInvoice` implementate in `API.js`.
 Dopo `clasp push`, crea una nuova versione del deployment Web App. L'accesso
 usa le credenziali GAS configurate sopra; il token di sessione resta in memoria
 nel client e scade dopo sei ore.
@@ -66,7 +79,7 @@ aggiornato plugin nativi, esegui `npx cap sync android` da `apps/web`.
   POST via `/exec`. Le operazioni contabili richiedono entrambe un token di
   sessione non condiviso nell'URL.
 - Le sessioni scadono dopo sei ore e vengono invalidate con **Esci**.
-- Le credenziali GAS non sono persistite; il token di sessione resta in memoria.
+- Le credenziali GAS non sono persistite nel client; il token di sessione resta in memoria.
   Le scritture offline sono invece conservate localmente in IndexedDB fino alla
   sincronizzazione.
 - La password non è inclusa nel codice; viene derivata con PBKDF2-HMAC-SHA256 e

@@ -55,10 +55,25 @@ export async function fetchTransactions(year: number, token: string, entity: 'pr
 }
 
 export function loginToGas(username: string, password: string) {
-  return requestGas<{ token: string; expiresIn: number }>({
+  return requestGas<{ token: string; expiresIn: number; setupRequired: boolean }>({
     action: 'login',
     username,
     password,
+  })
+}
+
+export function getWorkspaceSetupStatus(token: string) {
+  return requestGas<{ setupRequired: boolean }>({
+    action: 'getWorkspaceSetupStatus',
+    token,
+  })
+}
+
+export function initializeWorkspace(token: string, parentFolder: string) {
+  return requestGas<{ setupRequired: boolean; folderUrl: string; spreadsheetUrl: string }>({
+    action: 'initializeWorkspace',
+    token,
+    parentFolder,
   })
 }
 

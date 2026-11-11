@@ -14,6 +14,10 @@ function doPost(event) {
 
     if (payload.action === 'login') {
       data = login(payload.username, payload.password);
+    } else if (payload.action === 'getWorkspaceSetupStatus') {
+      data = getWorkspaceSetupStatus_(payload.token);
+    } else if (payload.action === 'initializeWorkspace') {
+      data = initializeWorkspace_(payload.token, payload.parentFolder);
     } else if (payload.action === 'logout') {
       logout(payload.token);
       data = { loggedOut: true };
@@ -60,7 +64,7 @@ function getTransactions_(token, anno, entity) {
     throw new Error('Anno non valido.');
   }
   const sheetName = ledgerSheetName_(year, entity);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const sheet = spreadsheet && spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
     if (entity === 'business') return [];
@@ -117,7 +121,7 @@ function appendTransaction_(token, transaction, entity) {
 
   const year = date.slice(0, 4);
   const sheetName = ledgerSheetName_(year, entity);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -152,7 +156,7 @@ function getInvoices_(token, anno) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Fatture');
   if (!sheet || sheet.getLastRow() < 2) return [];
 
@@ -164,7 +168,7 @@ function getInvoices_(token, anno) {
 
 function getCustomers_(token) {
   requireSession_(token);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const sheet = spreadsheet.getSheetByName('Clienti');
   if (!sheet || sheet.getLastRow() < 2) return [];
@@ -176,7 +180,7 @@ function getCustomers_(token) {
 function saveCustomer_(token, source) {
   requireSession_(token);
   const customer = normalizeCustomer_(source);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -224,7 +228,7 @@ function getCreditNotes_(token, anno) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const sheet = spreadsheet && spreadsheet.getSheetByName('NoteCredito');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
@@ -252,7 +256,7 @@ function issueCreditNote_(token, source) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheet = getSpreadsheetForSession_(token);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = spreadsheet.getSheetByName('Fatture');
     const invoiceRow = invoiceSheet && findInvoiceRow_(invoiceSheet, fatturaId);
@@ -353,7 +357,7 @@ function creditNoteJournalMovements_(invoice, amountCents) {
 
 function getSuppliers_(token) {
   requireSession_(token);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Fornitori');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues()
@@ -363,12 +367,12 @@ function getSuppliers_(token) {
 
 function saveSupplier_(token, source) {
   requireSession_(token);
-  return saveBusinessCounterparty_(source, 'Fornitori');
+  return saveBusinessCounterparty_(token, source, 'Fornitori');
 }
 
-function saveBusinessCounterparty_(source, sheetName) {
+function saveBusinessCounterparty_(token, source, sheetName) {
   const customer = normalizeCustomer_(source);
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -394,7 +398,7 @@ function getExpenses_(token, anno) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Spese');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
@@ -427,7 +431,7 @@ function issueExpense_(token, source) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheet = getSpreadsheetForSession_(token);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const sheet = getOrCreateSheet_(spreadsheet, 'Spese', [
       'ID', 'Anno', 'Data', 'Fornitore', 'Totale', 'Documento', 'Stato', 'Dettaglio JSON'
@@ -450,7 +454,7 @@ function issueExpense_(token, source) {
       if (bytes.length > 8 * 1024 * 1024) throw new Error('L’allegato supera il limite di 8 MB.');
       const name = sanitizeString_(attachment.nome).replace(/[\\/:*?"<>|]/g, '_') || 'documento';
       const blob = Utilities.newBlob(bytes, mimeType, name);
-      const folder = getExpenseUploadFolder_();
+      const folder = getExpenseUploadFolder_(token);
       const file = folder.createFile(blob);
       savedAttachment = { nome: name, mimeType: mimeType, url: file.getUrl() };
     }
@@ -504,13 +508,147 @@ function issueExpense_(token, source) {
   }
 }
 
-function getExpenseUploadFolder_() {
-  const properties = PropertiesService.getScriptProperties();
-  const existingId = properties.getProperty('EXPENSE_UPLOAD_FOLDER_ID');
-  if (existingId) return DriveApp.getFolderById(existingId);
-  const folder = DriveApp.createFolder('Allegati Spese');
-  properties.setProperty('EXPENSE_UPLOAD_FOLDER_ID', folder.getId());
+function getExpenseUploadFolder_(token) {
+  const session = requireSession_(token);
+  if (!session.user.expenseFolderId) {
+    const folder = DriveApp.createFolder('Allegati Spese - ' + session.user.username);
+    session.user.expenseFolderId = folder.getId();
+    saveSessionUser_(session);
+  }
+  return DriveApp.getFolderById(session.user.expenseFolderId);
+}
+
+function getWorkspaceSetupStatus_(token) {
+  const session = requireSession_(token);
+  return { setupRequired: !session.user.workspaceReady };
+}
+
+function getWorkspaceSetupStatus(token) {
+  return getWorkspaceSetupStatus_(token);
+}
+
+function initializeWorkspace(token, parentFolder) {
+  return initializeWorkspace_(token, parentFolder);
+}
+
+function initializeWorkspace_(token, parentFolderInput) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const session = requireSession_(token);
+    if (session.user.workspaceReady) {
+      return {
+        setupRequired: false,
+        folderUrl: session.user.rootFolderId
+          ? DriveApp.getFolderById(session.user.rootFolderId).getUrl()
+          : '',
+        spreadsheetUrl: SpreadsheetApp.openById(session.user.spreadsheetId).getUrl()
+      };
+    }
+
+    const requestedParentId = folderIdFromInput_(parentFolderInput);
+    if (session.user.setupParentFolderId
+      && session.user.setupParentFolderId !== requestedParentId) {
+      throw new Error('Configurazione già avviata in un’altra cartella. Riprendi usando la stessa destinazione.');
+    }
+    const parentFolder = DriveApp.getFolderById(
+      session.user.setupParentFolderId || requestedParentId
+    );
+    session.user.setupParentFolderId = parentFolder.getId();
+    saveSessionUser_(session);
+
+    if (!session.user.rootFolderId) {
+      session.user.rootFolderId = parentFolder
+        .createFolder(session.user.username + ' - Gestionale contabile')
+        .getId();
+      saveSessionUser_(session);
+    }
+    const rootFolder = DriveApp.getFolderById(session.user.rootFolderId);
+    const accountingFolder = getOrCreateWorkspaceFolder_(session, rootFolder, 'Contabilità', 'accountingFolderId');
+    getOrCreateWorkspaceFolder_(session, rootFolder, 'Fatture', 'invoicesFolderId');
+    getOrCreateWorkspaceFolder_(session, rootFolder, 'Spese', 'expensesFolderId');
+    const documentsFolder = getOrCreateWorkspaceFolder_(session, rootFolder, 'Documenti', 'documentsFolderId');
+    const expenseFolder = getOrCreateWorkspaceFolder_(session, documentsFolder, 'Allegati spese', 'expenseFolderId');
+
+    if (!session.user.spreadsheetId) {
+      session.user.spreadsheetId = SpreadsheetApp.create(
+        'Gestionale contabile - ' + session.user.username
+      ).getId();
+      saveSessionUser_(session);
+    }
+    const spreadsheet = SpreadsheetApp.openById(session.user.spreadsheetId);
+    initializeWorkspaceSpreadsheet_(spreadsheet);
+    DriveApp.getFileById(session.user.spreadsheetId).moveTo(accountingFolder);
+    session.user.expenseFolderId = expenseFolder.getId();
+    session.user.workspaceReady = true;
+    saveSessionUser_(session);
+
+    return {
+      setupRequired: false,
+      folderUrl: rootFolder.getUrl(),
+      spreadsheetUrl: spreadsheet.getUrl()
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function folderIdFromInput_(input) {
+  const value = String(input || '').trim();
+  const urlMatch = value.match(/\/folders\/([A-Za-z0-9_-]+)/)
+    || value.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  const id = urlMatch ? urlMatch[1] : value;
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) {
+    throw new Error('Inserisci il link o l’ID di una cartella Google Drive valida.');
+  }
+  return id;
+}
+
+function getOrCreateWorkspaceFolder_(session, parent, name, propertyName) {
+  if (session.user[propertyName]) {
+    return DriveApp.getFolderById(session.user[propertyName]);
+  }
+  const folder = parent.createFolder(name);
+  session.user[propertyName] = folder.getId();
+  saveSessionUser_(session);
   return folder;
+}
+
+function initializeWorkspaceSpreadsheet_(spreadsheet) {
+  const currentYear = new Date().getFullYear();
+  const sheets = spreadsheet.getSheets();
+  if (sheets.length === 1 && sheets[0].getLastRow() === 0) {
+    sheets[0].setName(String(currentYear));
+  }
+  for (let year = currentYear - 9; year <= currentYear + 1; year += 1) {
+    const privateSheetName = String(year);
+    if (!spreadsheet.getSheetByName(privateSheetName)) {
+      spreadsheet.insertSheet(privateSheetName);
+    }
+    const businessSheetName = ledgerSheetName_(privateSheetName, 'business');
+    if (!spreadsheet.getSheetByName(businessSheetName)) {
+      spreadsheet.insertSheet(businessSheetName);
+    }
+  }
+  getOrCreateSheet_(spreadsheet, 'Fatture', [
+    'ID', 'Anno', 'Numero', 'Data', 'Cliente', 'Totale', 'Stato', 'Dettaglio JSON'
+  ]);
+  getOrCreateSheet_(spreadsheet, 'NoteCredito', [
+    'ID', 'Anno', 'Numero', 'Fattura origine', 'Data', 'Importo', 'Stato', 'Dettaglio JSON'
+  ]);
+  getOrCreateSheet_(spreadsheet, 'Clienti', ['ID', 'Dettaglio JSON']);
+  getOrCreateSheet_(spreadsheet, 'Fornitori', ['ID', 'Dettaglio JSON']);
+  getOrCreateSheet_(spreadsheet, 'Spese', [
+    'ID', 'Anno', 'Data', 'Fornitore', 'Totale', 'Documento', 'Stato', 'Dettaglio JSON'
+  ]);
+}
+
+function getSpreadsheetForSession_(token) {
+  const session = requireSession_(token);
+  if (!session.user.workspaceReady || !session.user.spreadsheetId) {
+    throw new Error('BUSINESS_SETUP_REQUIRED');
+  }
+  return SpreadsheetApp.openById(session.user.spreadsheetId);
 }
 
 function issueInvoice_(token, source) {
@@ -520,7 +658,7 @@ function issueInvoice_(token, source) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheet = getSpreadsheetForSession_(token);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = getOrCreateSheet_(spreadsheet, 'Fatture', [
       'ID', 'Anno', 'Numero', 'Data', 'Cliente', 'Totale', 'Stato', 'Dettaglio JSON'
@@ -752,7 +890,7 @@ function getDashboardData(token, anno) {
     throw new Error('Anno non valido.');
   }
 
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheet = getSpreadsheetForSession_(token);
   if (!spreadsheet) {
     throw new Error('Il progetto Apps Script deve essere collegato al foglio contabile.');
   }
@@ -786,4 +924,5 @@ function authorizeSpreadsheet_() {
     throw new Error('Il progetto Apps Script deve essere collegato al foglio contabile.');
   }
   spreadsheet.getSheets();
+  DriveApp.getRootFolder().getName();
 }

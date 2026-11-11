@@ -3,6 +3,7 @@ import { buildAccountingReportsForYear } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { buildBalanceSheetSections, type BalanceAccountRow, type BalanceSection, type BalanceRow } from './balanceSheet'
+import { buildIncomeStatement, type IncomeStatement, type IncomeStatementSection } from './incomeStatement'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const balanceNumber = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -19,10 +20,12 @@ export function ReportsPage() {
   const token = useGasSessionStore((state) => state.token)
   const reportTransactions = useMemo(() => [...historyTransactions, ...transactions], [historyTransactions, transactions])
   const reports = useMemo(() => buildAccountingReportsForYear(reportTransactions, year), [reportTransactions, year])
+  const incomeStatement = useMemo(() => buildIncomeStatement(reports.contoEconomico.righe), [reports.contoEconomico.righe])
   const [view, setView] = useState<'sp' | 'ce' | 'liquidita'>('sp')
+  const [incomeView, setIncomeView] = useState<'scalar' | 'opposed'>('scalar')
   const previousStatus = historyLoading ? 'loading' : historyError ? 'error' : 'ready'
   const previousError = historyError ?? ''
-  const { statoPatrimoniale, contoEconomico, liquidita } = reports
+  const { statoPatrimoniale, liquidita } = reports
 
   const previousReports = useMemo(
     () => buildAccountingReportsForYear(historyTransactions, year - 1),
@@ -107,18 +110,12 @@ export function ReportsPage() {
           )}
         </div>
       ) : view === 'ce' ? (
-        <section className="border border-stone-200 bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="bg-stone-100 text-xs uppercase text-stone-600"><tr><th className="px-5 py-3 font-semibold">Conto</th><th className="px-5 py-3 font-semibold">Gestione</th><th className="px-5 py-3 text-right font-semibold">Ricavi</th><th className="px-5 py-3 text-right font-semibold">Costi</th><th className="px-5 py-3 text-right font-semibold">Saldo</th></tr></thead>
-              <tbody className="divide-y divide-stone-100">
-                {contoEconomico.righe.map((line) => <tr key={line.conto}><td className="px-5 py-3">{line.conto}</td><td className="px-5 py-3">{line.gestione}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(line.ricavi)}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(line.costi)}</td><td className="px-5 py-3 text-right font-medium tabular-nums">{euro.format(line.saldo)}</td></tr>)}
-                {!contoEconomico.righe.length && <tr><td className="px-5 py-8 text-center text-stone-500" colSpan={5}>Nessun conto economico per questo esercizio.</td></tr>}
-              </tbody>
-              <tfoot className="border-t-2 border-stone-300 bg-stone-50 font-semibold"><tr><td className="px-5 py-3" colSpan={2}>Totali</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(contoEconomico.ricavi)}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(contoEconomico.costi)}</td><td className="px-5 py-3 text-right tabular-nums">{euro.format(contoEconomico.utile)}</td></tr></tfoot>
-            </table>
-          </div>
-        </section>
+        <IncomeStatementView
+          statement={incomeStatement}
+          year={year}
+          layout={incomeView}
+          onLayoutChange={setIncomeView}
+        />
       ) : (
         <section className="border border-stone-200 bg-white">
           <div className="border-b border-stone-200 px-5 py-4">
@@ -138,6 +135,159 @@ export function ReportsPage() {
         </section>
       )}
     </section>
+  )
+}
+
+function IncomeStatementView({
+  statement,
+  year,
+  layout,
+  onLayoutChange,
+}: {
+  statement: IncomeStatement
+  year: number
+  layout: 'scalar' | 'opposed'
+  onLayoutChange: (layout: 'scalar' | 'opposed') => void
+}) {
+  const hasRows = statement.sections.some((section) => section.items.length > 0)
+  return (
+    <section className="overflow-hidden border border-stone-200 bg-white shadow-sm">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 px-5 py-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-800">Prospetto contabile · {year}</p>
+          <h2 className="mt-1 text-xl font-semibold text-stone-900">Conto economico</h2>
+          <p className="mt-1 text-sm text-stone-500">Schema gestionale ispirato all’art. 2425 del Codice civile</p>
+        </div>
+        <div className="inline-flex border border-stone-300 p-1" role="group" aria-label="Forma del conto economico">
+          <button type="button" aria-pressed={layout === 'scalar'} className={`min-h-9 px-3 text-sm font-medium ${layout === 'scalar' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`} onClick={() => onLayoutChange('scalar')}>Scalare</button>
+          <button type="button" aria-pressed={layout === 'opposed'} className={`min-h-9 px-3 text-sm font-medium ${layout === 'opposed' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`} onClick={() => onLayoutChange('opposed')}>Sezioni contrapposte</button>
+        </div>
+      </header>
+      <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs leading-5 text-amber-950">
+        La classificazione è indicativa e basata sul nome dei conti e sulla gestione: verifica le voci e completa quelle non mappate prima di usare il prospetto come bilancio civilistico.
+      </p>
+      {!hasRows ? (
+        <p className="px-5 py-10 text-center text-sm text-stone-500">Nessun conto economico per questo esercizio.</p>
+      ) : layout === 'scalar' ? (
+        <ScalarIncomeStatement statement={statement} />
+      ) : (
+        <OpposedIncomeStatement statement={statement} />
+      )}
+    </section>
+  )
+}
+
+function ScalarIncomeStatement({ statement }: { statement: IncomeStatement }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-left text-sm">
+        <thead className="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
+          <tr><th className="px-5 py-3 font-semibold">Voce</th><th className="px-5 py-3 text-right font-semibold">Esercizio</th></tr>
+        </thead>
+        {statement.sections.filter((section) => section.items.length > 0).map((section) => (
+          <tbody key={section.code}>
+            <tr className="border-y border-stone-300 bg-stone-100">
+              <th className="px-5 py-2.5 text-left font-semibold text-stone-800" colSpan={2}>{section.code === '20' ? '20)' : `${section.code})`} {section.title}</th>
+            </tr>
+            {section.items.map((item) => (
+              <Fragment key={`${section.code}:${item.code}`}>
+                <tr className="bg-stone-50/70">
+                  <th className="px-5 py-2 text-left text-xs font-semibold text-stone-700" colSpan={2}>
+                    {item.code && <span className="mr-2 text-stone-500">{item.code}.</span>}{item.title}
+                  </th>
+                </tr>
+                {item.rows.map((row) => (
+                  <tr key={`${row.conto}:${row.side}`} className="border-b border-dotted border-stone-200 hover:bg-stone-50">
+                    <td className="px-5 py-2 text-stone-700">{row.conto}<span className="ml-2 text-xs text-stone-400">{row.gestione}</span></td>
+                    <td className="whitespace-nowrap px-5 py-2 text-right tabular-nums text-stone-700">{euro.format(row.side === 'positive' ? row.importo : -row.importo)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                  <td className="px-5 py-2">Totale {item.code && `${item.code}. `}{item.title.toLowerCase()}</td>
+                  <td className="px-5 py-2 text-right tabular-nums">{euro.format(item.total)}</td>
+                </tr>
+              </Fragment>
+            ))}
+            <tr className="border-b border-stone-200 bg-white font-semibold text-stone-800">
+              <td className="px-5 py-2.5">Totale {section.code === '20' ? '20' : section.code}</td>
+              <td className="px-5 py-2.5 text-right tabular-nums">{euro.format(section.total)}</td>
+            </tr>
+          </tbody>
+        ))}
+        <tfoot className="border-t-2 border-emerald-800 bg-emerald-50">
+          <SummaryRows statement={statement} />
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+function OpposedIncomeStatement({ statement }: { statement: IncomeStatement }) {
+  return (
+    <>
+      <div className="grid lg:grid-cols-2">
+        <IncomeStatementSide title="Componenti positivi" sections={statement.positiveSections} side="positive" />
+        <IncomeStatementSide title="Componenti negativi" sections={statement.negativeSections} side="negative" />
+      </div>
+      <div className="border-t border-stone-200">
+        <table className="w-full text-sm">
+          <tbody><SummaryRows statement={statement} /></tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+function IncomeStatementSide({ title, sections, side }: { title: string; sections: IncomeStatementSection[]; side: 'positive' | 'negative' }) {
+  return (
+    <section className={side === 'negative' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}>
+      <h3 className={`border-b border-stone-300 px-5 py-3 text-center text-xs font-bold uppercase tracking-wider ${side === 'positive' ? 'bg-emerald-50 text-emerald-950' : 'bg-orange-50 text-orange-950'}`}>{title}</h3>
+      {sections.map((section) => (
+        <div key={section.code}>
+          <h4 className="border-b border-stone-200 bg-stone-100 px-4 py-2 text-xs font-semibold text-stone-800">{section.code === '20' ? '20)' : `${section.code})`} {section.title}</h4>
+          {section.items.map((item) => (
+            <div key={`${section.code}:${item.code}`} className="border-b border-stone-100">
+              <p className="px-4 pb-1 pt-2 text-xs font-medium text-stone-500">{item.code && `${item.code}. `}{item.title}</p>
+              {item.rows.map((row) => (
+                <div key={`${row.conto}:${row.side}`} className="flex items-start justify-between gap-3 px-4 py-1.5 text-sm">
+                  <span className="text-stone-700">{row.conto}<span className="ml-2 text-xs text-stone-400">{row.gestione}</span></span>
+                  <span className="whitespace-nowrap text-right tabular-nums text-stone-700">{euro.format(row.importo)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between gap-3 px-4 pb-2 pt-1 text-xs font-semibold text-stone-600">
+                <span>Totale voce</span><span className="whitespace-nowrap tabular-nums">{euro.format(item.rows.reduce((sum, row) => sum + row.importo, 0))}</span>
+              </div>
+            </div>
+          ))}
+          <div className="flex justify-between gap-3 bg-stone-50 px-4 py-2 text-xs font-semibold text-stone-700">
+            <span>Totale {section.code}</span><span className="whitespace-nowrap tabular-nums">{euro.format(Math.abs(section.total))}</span>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function SummaryRows({ statement }: { statement: IncomeStatement }) {
+  const rows = [
+    { label: 'A) Valore della produzione', value: statement.productionValue, emphasis: false },
+    { label: 'B) Costi della produzione', value: -statement.productionCosts, emphasis: false },
+    { label: 'Differenza tra valore e costi della produzione (A - B)', value: statement.operatingResult, emphasis: true },
+    { label: 'C) Proventi e oneri finanziari', value: statement.financialResult, emphasis: false },
+    { label: 'D) Rettifiche di valore di attività e passività finanziarie', value: statement.adjustmentsResult, emphasis: false },
+    { label: 'Risultato prima delle imposte', value: statement.preTaxResult, emphasis: true },
+    { label: '20) Imposte sul reddito dell’esercizio', value: statement.incomeTaxes, emphasis: false },
+    { label: 'Utile (perdita) dell’esercizio', value: statement.netResult, emphasis: true },
+  ]
+  return (
+    <>
+      {rows.map((row) => (
+        <tr key={row.label} className={row.emphasis ? 'border-t border-emerald-200 font-bold text-stone-900' : 'border-t border-stone-100 text-stone-700'}>
+          <td className="px-5 py-2.5">{row.label}</td>
+          <td className="whitespace-nowrap px-5 py-2.5 text-right tabular-nums">{euro.format(row.value)}</td>
+        </tr>
+      ))}
+    </>
   )
 }
 

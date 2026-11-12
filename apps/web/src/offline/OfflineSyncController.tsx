@@ -4,14 +4,16 @@ import { getPendingCount, syncPendingTransactions } from './offlineLedger'
 import { useGasSessionStore } from '../stores/gasSessionStore'
 import { useLedgerStore } from '../stores/ledgerStore'
 import { useOfflineSyncStore } from '../stores/offlineSyncStore'
-import { useProfileStore } from '../stores/profileStore'
+import { useEntityStore } from '../stores/entityStore'
 
 export function OfflineSyncController() {
     const token = useGasSessionStore((state) => state.token)
     const clearToken = useGasSessionStore((state) => state.clearToken)
     const year = useLedgerStore((state) => state.selectedYear)
     const refresh = useLedgerStore((state) => state.refresh)
-    const entity = useProfileStore((state) => state.activeProfile)
+    const activeEntity = useEntityStore((state) => state.entities.find((item) => item.spreadsheetId === state.activeSpreadsheetId))
+    const spreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
+    const entity = activeEntity?.tipologia === 'Azienda' ? 'business' : 'private'
     const setSyncState = useOfflineSyncStore((state) => state.setSyncState)
 
     useEffect(() => {
@@ -38,7 +40,7 @@ export function OfflineSyncController() {
                     ...(result.synced ? { lastSyncedAt: Date.now() } : {}),
                     error: null,
                 })
-                if (result.synced) await refresh(year, token, entity)
+                if (result.synced) await refresh(year, token, entity, spreadsheetId)
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Sincronizzazione non riuscita.'
                 if (message.includes('SESSION_EXPIRED')) clearToken()
@@ -74,7 +76,7 @@ export function OfflineSyncController() {
             document.removeEventListener('visibilitychange', handleVisibilityChange)
             window.removeEventListener('accounting:sync-request', handleSyncRequest)
         }
-    }, [clearToken, entity, refresh, setSyncState, token, year])
+    }, [clearToken, entity, refresh, setSyncState, spreadsheetId, token, year])
 
     return null
 }

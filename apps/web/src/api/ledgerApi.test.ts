@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchCreditNotes, fetchCustomers, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactionHistory, fetchTransactions, getWorkspaceSetupStatus, initializeWorkspace, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
+import { createAccountingEntity, fetchCreditNotes, fetchCustomers, fetchEntities, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactionHistory, fetchTransactions, getWorkspaceSetupStatus, initializeWorkspace, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
 import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft } from '../domain/invoicing'
 import type { ExpenseDraft } from '../domain/expenses'
@@ -65,6 +65,7 @@ describe('client API GAS', () => {
   })
 
   it('invia ogni operazione come JSON text/plain direttamente a GAS', async () => {
+    const spreadsheetId = 'entity-spreadsheet-123'
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => (
       new Response(JSON.stringify({ status: 200, data: { token: 'sessione', expiresIn: 2592000, setupRequired: false } }), {
         headers: { 'Content-Type': 'application/json' },
@@ -75,22 +76,30 @@ describe('client API GAS', () => {
     await loginToGas('utente', 'password')
     await getWorkspaceSetupStatus('sessione')
     await initializeWorkspace('sessione', 'workspace-root-id')
-    await fetchTransactions(2026, 'sessione', 'private')
-    await fetchTransactionHistory(2025, 'sessione', 'private')
-    await saveTransaction('sessione', transaction, 'business')
-    await fetchInvoices(2026, 'sessione')
-    await fetchCustomers('sessione')
-    await saveCustomer('sessione', customer)
-    await fetchCreditNotes(2026, 'sessione')
-    await issueCreditNote('sessione', creditNote)
-    await fetchSuppliers('sessione')
-    await saveSupplier('sessione', customer)
-    await fetchExpenses(2026, 'sessione')
-    await issueExpense('sessione', expense)
-    await issueInvoice('sessione', invoice)
+    await fetchEntities('sessione')
+    await createAccountingEntity('sessione', {
+      nome: 'Azienda 1',
+      tipo: 'Azienda',
+      codiceFiscale: '',
+      partitaIva: '12345678901',
+      regime: '',
+    })
+    await fetchTransactions(2026, 'sessione', 'private', spreadsheetId)
+    await fetchTransactionHistory(2025, 'sessione', 'private', spreadsheetId)
+    await saveTransaction('sessione', transaction, 'business', spreadsheetId)
+    await fetchInvoices(2026, 'sessione', spreadsheetId)
+    await fetchCustomers('sessione', spreadsheetId)
+    await saveCustomer('sessione', customer, spreadsheetId)
+    await fetchCreditNotes(2026, 'sessione', spreadsheetId)
+    await issueCreditNote('sessione', creditNote, spreadsheetId)
+    await fetchSuppliers('sessione', spreadsheetId)
+    await saveSupplier('sessione', customer, spreadsheetId)
+    await fetchExpenses(2026, 'sessione', spreadsheetId)
+    await issueExpense('sessione', expense, spreadsheetId)
+    await issueInvoice('sessione', invoice, spreadsheetId)
     await logoutFromGas('sessione')
 
-    expect(fetchMock).toHaveBeenCalledTimes(17)
+    expect(fetchMock).toHaveBeenCalledTimes(19)
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec')
       expect(init?.method).toBe('POST')
@@ -103,6 +112,8 @@ describe('client API GAS', () => {
       'login',
       'getWorkspaceSetupStatus',
       'initializeWorkspace',
+      'getEntities',
+      'createNewEntity',
       'getTransactions',
       'getTransactionHistory',
       'appendTransaction',
@@ -120,20 +131,21 @@ describe('client API GAS', () => {
     ])
     expect(payloads[1]).toMatchObject({ token: 'sessione' })
     expect(payloads[2]).toMatchObject({ token: 'sessione', workspaceFolder: 'workspace-root-id' })
-    expect(payloads[3]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private' })
-    expect(payloads[4]).toMatchObject({ anno: 2025, token: 'sessione', entity: 'private' })
-    expect(payloads[5]).toMatchObject({ token: 'sessione', transaction, entity: 'business' })
-    expect(payloads[6]).toMatchObject({ anno: 2026, token: 'sessione' })
-    expect(payloads[7]).toMatchObject({ token: 'sessione' })
-    expect(payloads[8]).toMatchObject({ token: 'sessione', customer })
-    expect(payloads[9]).toMatchObject({ token: 'sessione', anno: 2026 })
-    expect(payloads[10]).toMatchObject({ token: 'sessione', creditNote })
-    expect(payloads[11]).toMatchObject({ token: 'sessione' })
-    expect(payloads[12]).toMatchObject({ token: 'sessione', supplier: customer })
-    expect(payloads[13]).toMatchObject({ token: 'sessione', anno: 2026 })
-    expect(payloads[14]).toMatchObject({ token: 'sessione', expense })
-    expect(payloads[15]).toMatchObject({ token: 'sessione', invoice })
-    expect(payloads[16]).toMatchObject({ token: 'sessione' })
+    expect(payloads[4]).toMatchObject({ token: 'sessione', datiEntita: { nome: 'Azienda 1', tipo: 'Azienda' } })
+    expect(payloads[5]).toMatchObject({ anno: 2026, token: 'sessione', entity: 'private', spreadsheetId })
+    expect(payloads[6]).toMatchObject({ anno: 2025, token: 'sessione', entity: 'private', spreadsheetId })
+    expect(payloads[7]).toMatchObject({ token: 'sessione', transaction, entity: 'business', spreadsheetId })
+    expect(payloads[8]).toMatchObject({ anno: 2026, token: 'sessione', spreadsheetId })
+    expect(payloads[9]).toMatchObject({ token: 'sessione', spreadsheetId })
+    expect(payloads[10]).toMatchObject({ token: 'sessione', customer, spreadsheetId })
+    expect(payloads[11]).toMatchObject({ token: 'sessione', anno: 2026, spreadsheetId })
+    expect(payloads[12]).toMatchObject({ token: 'sessione', creditNote, spreadsheetId })
+    expect(payloads[13]).toMatchObject({ token: 'sessione', spreadsheetId })
+    expect(payloads[14]).toMatchObject({ token: 'sessione', supplier: customer, spreadsheetId })
+    expect(payloads[15]).toMatchObject({ token: 'sessione', anno: 2026, spreadsheetId })
+    expect(payloads[16]).toMatchObject({ token: 'sessione', expense, spreadsheetId })
+    expect(payloads[17]).toMatchObject({ token: 'sessione', invoice, spreadsheetId })
+    expect(payloads[18]).toMatchObject({ token: 'sessione' })
   })
 
   it('propaga gli errori applicativi restituiti da GAS', async () => {

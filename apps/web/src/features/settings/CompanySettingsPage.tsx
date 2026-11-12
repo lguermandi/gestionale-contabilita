@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { InvoiceAccounts } from '../../domain/invoicing'
+import { useGasSessionStore } from '../../stores/gasSessionStore'
+import { useEntityStore } from '../../stores/entityStore'
 import { useProfileStore, type CompanyProfile } from '../../stores/profileStore'
 
 const inputClass = 'mt-1 min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
@@ -28,15 +30,58 @@ const accountFields: Array<{ key: keyof InvoiceAccounts; label: string }> = [
 ]
 
 export function CompanySettingsPage() {
+  const token = useGasSessionStore((state) => state.token)
+  const entities = useEntityStore((state) => state.entities)
+  const activeSpreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
+  const entitiesLoading = useEntityStore((state) => state.loading)
+  const entitiesError = useEntityStore((state) => state.error)
+  const createEntity = useEntityStore((state) => state.createEntity)
+  const activeEntity = entities.find((entity) => entity.spreadsheetId === activeSpreadsheetId)
   const savedProfile = useProfileStore((state) => state.companyProfile)
   const setCompanyProfile = useProfileStore((state) => state.setCompanyProfile)
   const [profile, setProfile] = useState(savedProfile)
   const [saved, setSaved] = useState(false)
+  const [entityName, setEntityName] = useState('')
+  const [entityType, setEntityType] = useState<'Privato' | 'Azienda'>('Privato')
+  const [entityTaxCode, setEntityTaxCode] = useState('')
+  const [entityVatNumber, setEntityVatNumber] = useState('')
+  const [entityError, setEntityError] = useState('')
+  const [entityMessage, setEntityMessage] = useState('')
+  const [creatingEntity, setCreatingEntity] = useState(false)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setCompanyProfile(profile)
     setSaved(true)
+  }
+
+  async function handleCreateEntity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setEntityError('')
+    setEntityMessage('')
+    if (!token) {
+      setEntityError('Accedi a GAS dalla barra superiore per creare un’entità.')
+      return
+    }
+
+    setCreatingEntity(true)
+    try {
+      const created = await createEntity(token, {
+        nome: entityName,
+        tipo: entityType,
+        codiceFiscale: entityTaxCode,
+        partitaIva: entityVatNumber,
+        regime: '',
+      })
+      setEntityMessage(`Entità "${created.nomeEntita}" creata e selezionata.`)
+      setEntityName('')
+      setEntityTaxCode('')
+      setEntityVatNumber('')
+    } catch (error) {
+      setEntityError(error instanceof Error ? error.message : 'Creazione dell’entità non riuscita.')
+    } finally {
+      setCreatingEntity(false)
+    }
   }
 
   return (
@@ -46,6 +91,49 @@ export function CompanySettingsPage() {
         <h1 className="text-2xl font-semibold text-stone-900">Impostazioni</h1>
         <p className="mt-2 text-sm text-stone-600">Dati emittente e conti usati per fatture e scritture automatiche.</p>
       </div>
+      <section className="mb-6 border border-stone-200 bg-white p-5">
+        <h2 className="mb-2 font-semibold text-stone-900">Entità contabili su Google Drive</h2>
+        <p className="mb-4 text-sm text-stone-600">Ogni entità mantiene cartella e spreadsheet separati.</p>
+        <form onSubmit={handleCreateEntity} className="grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm text-stone-700">
+            Nome
+            <input className={inputClass} value={entityName} onChange={(event) => setEntityName(event.target.value)} maxLength={100} required />
+          </label>
+          <label className="block text-sm text-stone-700">
+            Tipo
+            <select className={inputClass} value={entityType} onChange={(event) => setEntityType(event.target.value as 'Privato' | 'Azienda')}>
+              <option value="Privato">Privato</option>
+              <option value="Azienda">Azienda</option>
+            </select>
+          </label>
+          <label className="block text-sm text-stone-700">
+            Codice fiscale
+            <input className={inputClass} value={entityTaxCode} onChange={(event) => setEntityTaxCode(event.target.value)} maxLength={32} />
+          </label>
+          <label className="block text-sm text-stone-700">
+            Partita IVA
+            <input className={inputClass} value={entityVatNumber} onChange={(event) => setEntityVatNumber(event.target.value)} maxLength={32} />
+          </label>
+          <div className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={creatingEntity || !token} className="min-h-11 bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                {creatingEntity ? 'Creazione…' : 'Crea entità'}
+              </button>
+              {activeEntity && (
+                <a
+                  className="inline-flex min-h-11 items-center border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                  href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.spreadsheetId)}/export?format=xlsx`}
+                >
+                  Scarica Backup XLSX
+                </a>
+              )}
+            </div>
+            {entitiesLoading && <p className="text-sm text-stone-500" role="status">Caricamento entità…</p>}
+          </div>
+        </form>
+        {(entityError || entitiesError) && <p className="mt-3 text-sm text-rose-700" role="alert">{entityError || entitiesError}</p>}
+        {entityMessage && <p className="mt-3 text-sm text-emerald-800" role="status">{entityMessage}</p>}
+      </section>
       <form onSubmit={handleSubmit} className="space-y-6">
         <section className="border border-stone-200 bg-white p-5">
           <h2 className="mb-4 font-semibold text-stone-900">Dati dell’emittente</h2>

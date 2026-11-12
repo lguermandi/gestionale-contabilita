@@ -31,6 +31,16 @@ describe('coda offline della partita doppia', () => {
         expect(await getLocalTransactions(2025, 'business')).toEqual([])
     })
 
+    it('isola le registrazioni offline per spreadsheet attivo', async () => {
+        await queueTransaction(record, 'business', 'spreadsheet-one')
+        await queueTransaction({ ...record, id: '00000000-0000-4000-8000-000000000002' }, 'business', 'spreadsheet-two')
+
+        expect((await getLocalTransactions(2026, 'business', 'spreadsheet-one')).map((item) => item.transaction.id))
+            .toEqual([record.id])
+        expect((await getLocalTransactions(2026, 'business', 'spreadsheet-two')).map((item) => item.transaction.id))
+            .toEqual(['00000000-0000-4000-8000-000000000002'])
+    })
+
     it('carica lo storico locale fino all’esercizio precedente solo per il profilo richiesto', async () => {
         await queueTransaction({ ...record, id: '2025-transaction', data: '2025-03-01' }, 'private')
         await queueTransaction(record, 'private')
@@ -52,5 +62,14 @@ describe('coda offline della partita doppia', () => {
         expect(send).toHaveBeenCalledWith('session', record, 'private')
         expect((await getLocalTransactions(2026, 'private'))[0].status).toBe('synced')
         expect(await getPendingCount()).toBe(0)
+    })
+
+    it('invia allo spreadsheet della registrazione offline', async () => {
+        await queueTransaction(record, 'private', 'spreadsheet-one')
+        const send = vi.fn(async () => ({ id: record.id, duplicate: false }))
+
+        await syncPendingTransactions('session', { isOnline: async () => true, send })
+
+        expect(send).toHaveBeenCalledWith('session', record, 'private', 'spreadsheet-one')
     })
 })

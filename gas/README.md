@@ -23,6 +23,16 @@ cartella** con l'account di esecuzione GAS, necessario per le successive
 operazioni. L'autorizzazione Google usa lo scope `drive.file`; l'access token
 resta in memoria e non viene salvato. I dati iniziali sono vuoti.
 
+### Struttura delle entità contabili
+
+`Entities.js` crea una cartella radice `Gestionale Contabilita` sul Drive
+dell'account di esecuzione GAS e un unico spreadsheet `Index_Entita` al suo
+interno. Esegui `initSystem()` dall'editor Apps Script per inizializzare o
+recuperare questi riferimenti. Per aggiungere un'entità esegui
+`createNewEntity({nome, tipo, codiceFiscale, partitaIva, regime})`, dove `tipo`
+è `Privato` o `Azienda`. Ogni entità riceve una sottocartella e uno spreadsheet
+separato; i relativi ID sono registrati nel foglio `Entita` dell'indice.
+
 Lo spazio contiene le cartelle `Contabilità`, `Fatture emesse`, `Ricevute`,
 `Estratti conto`, `Spese` e `Documenti/Allegati spese`. In `Contabilità` viene
 creato un foglio Google con registri annuali, fatture, note di credito, clienti,
@@ -67,9 +77,15 @@ contenuto semplice evita il preflight OPTIONS; `doPost` legge il JSON da
 `event.postData.contents` e restituisce JSON con `ContentService.MimeType.JSON`.
 La risposta del deployment è leggibile dal browser dopo il redirect GAS.
 
-Il deployment deve includere le azioni JSON `login`, `getWorkspaceSetupStatus`,
-`initializeWorkspace`, `getTransactions`, `getTransactionHistory`,
-`appendTransaction`, `getInvoices` e `issueInvoice` implementate in `API.js`.
+Il deployment deve includere le azioni JSON `login`, `getEntities`,
+`createNewEntity`, `getWorkspaceSetupStatus`, `initializeWorkspace`,
+`getTransactions`, `getTransactionHistory`, `appendTransaction`, `getInvoices`
+e `issueInvoice` implementate in `API.js`.
+
+Le API contabili ricevono `spreadsheetId` per instradare letture e scritture
+nello spreadsheet dell’entità attiva; GAS verifica che l’ID sia presente in
+`Index_Entita` prima di aprirlo. Le chiamate legacy senza questo campo
+mantengono il comportamento preesistente.
 
 `getTransactionHistory` restituisce i movimenti dei fogli annuali esistenti fino
 all'anno richiesto; il prospetto patrimoniale li usa per riportare i saldi di

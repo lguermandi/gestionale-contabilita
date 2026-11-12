@@ -18,35 +18,41 @@ function doPost(event) {
       data = getWorkspaceSetupStatus_(payload.token);
     } else if (payload.action === 'initializeWorkspace') {
       data = initializeWorkspace_(payload.token, payload.workspaceFolder);
+    } else if (payload.action === 'getEntities') {
+      requireSession_(payload.token);
+      data = getEntities();
+    } else if (payload.action === 'createNewEntity') {
+      requireSession_(payload.token);
+      data = createNewEntity(payload.datiEntita);
     } else if (payload.action === 'logout') {
       logout(payload.token);
       data = { loggedOut: true };
     } else if (payload.action === 'getTransactions') {
-      data = getTransactions_(payload.token, payload.anno, payload.entity);
+      data = getTransactions_(payload.token, payload.anno, payload.entity, payload.spreadsheetId);
     } else if (payload.action === 'getTransactionHistory') {
-      data = getTransactionHistory_(payload.token, payload.anno, payload.entity);
+      data = getTransactionHistory_(payload.token, payload.anno, payload.entity, payload.spreadsheetId);
     } else if (payload.action === 'appendTransaction') {
-      data = appendTransaction_(payload.token, payload.transaction, payload.entity);
+      data = appendTransaction_(payload.token, payload.transaction, payload.entity, payload.spreadsheetId);
     } else if (payload.action === 'getInvoices') {
-      data = getInvoices_(payload.token, payload.anno);
+      data = getInvoices_(payload.token, payload.anno, payload.spreadsheetId);
     } else if (payload.action === 'getCustomers') {
-      data = getCustomers_(payload.token);
+      data = getCustomers_(payload.token, payload.spreadsheetId);
     } else if (payload.action === 'saveCustomer') {
-      data = saveCustomer_(payload.token, payload.customer);
+      data = saveCustomer_(payload.token, payload.customer, payload.spreadsheetId);
     } else if (payload.action === 'getCreditNotes') {
-      data = getCreditNotes_(payload.token, payload.anno);
+      data = getCreditNotes_(payload.token, payload.anno, payload.spreadsheetId);
     } else if (payload.action === 'issueCreditNote') {
-      data = issueCreditNote_(payload.token, payload.creditNote);
+      data = issueCreditNote_(payload.token, payload.creditNote, payload.spreadsheetId);
     } else if (payload.action === 'getSuppliers') {
-      data = getSuppliers_(payload.token);
+      data = getSuppliers_(payload.token, payload.spreadsheetId);
     } else if (payload.action === 'saveSupplier') {
-      data = saveSupplier_(payload.token, payload.supplier);
+      data = saveSupplier_(payload.token, payload.supplier, payload.spreadsheetId);
     } else if (payload.action === 'getExpenses') {
-      data = getExpenses_(payload.token, payload.anno);
+      data = getExpenses_(payload.token, payload.anno, payload.spreadsheetId);
     } else if (payload.action === 'issueExpense') {
-      data = issueExpense_(payload.token, payload.expense);
+      data = issueExpense_(payload.token, payload.expense, payload.spreadsheetId);
     } else if (payload.action === 'issueInvoice') {
-      data = issueInvoice_(payload.token, payload.invoice);
+      data = issueInvoice_(payload.token, payload.invoice, payload.spreadsheetId);
     } else {
       return jsonResponse_({ status: 400, error: 'Azione non supportata.' });
     }
@@ -59,14 +65,14 @@ function doPost(event) {
   }
 }
 
-function getTransactions_(token, anno, entity) {
+function getTransactions_(token, anno, entity, spreadsheetId) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) {
     throw new Error('Anno non valido.');
   }
-  const sheetName = ledgerSheetName_(year, entity);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const sheetName = spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(year, entity);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
     if (entity === 'business') return [];
@@ -74,10 +80,13 @@ function getTransactions_(token, anno, entity) {
   }
   const lastRow = sheet.getLastRow();
   const rows = lastRow ? sheet.getRange(1, 1, lastRow, 7).getValues() : [];
-  return parseTransactions_(rows);
+  const transactions = parseTransactions_(rows);
+  return spreadsheetId
+    ? transactions.filter(transaction => transaction.data.slice(0, 4) === year)
+    : transactions;
 }
 
-function getTransactionHistory_(token, anno, entity) {
+function getTransactionHistory_(token, anno, entity, spreadsheetId) {
   requireSession_(token);
   const throughYear = String(anno || '');
   if (!/^\d{4}$/.test(throughYear)) {
@@ -85,28 +94,42 @@ function getTransactionHistory_(token, anno, entity) {
   }
   const normalizedEntity = entity || 'private';
   ledgerSheetName_(throughYear, normalizedEntity);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   if (!spreadsheet) {
     throw new Error('Il progetto Apps Script deve essere collegato al foglio contabile.');
   }
 
-  const yearPattern = normalizedEntity === 'business' ? /^AZIENDA_(\d{4})$/ : /^(\d{4})$/;
-  const sheets = spreadsheet.getSheets()
-    .map(sheet => ({ sheet: sheet, match: sheet.getName().match(yearPattern) }))
-    .filter(item => item.match && Number(item.match[1]) <= Number(throughYear))
-    .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
-  const transactions = sheets.flatMap(item => {
-    const lastRow = item.sheet.getLastRow();
-    return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
-  });
+  let years;
+  let transactions;
+  if (spreadsheetId) {
+    const sheet = spreadsheet.getSheetByName('Movimenti_PD');
+    const lastRow = sheet ? sheet.getLastRow() : 0;
+    const allTransactions = lastRow
+      ? parseTransactions_(sheet.getRange(1, 1, lastRow, 7).getValues())
+      : [];
+    transactions = allTransactions.filter(item => item.data.slice(0, 4) <= throughYear);
+    years = Array.from(new Set(transactions.map(item => Number(item.data.slice(0, 4)))))
+      .sort((left, right) => left - right);
+  } else {
+    const yearPattern = normalizedEntity === 'business' ? /^AZIENDA_(\d{4})$/ : /^(\d{4})$/;
+    const sheets = spreadsheet.getSheets()
+      .map(sheet => ({ sheet: sheet, match: sheet.getName().match(yearPattern) }))
+      .filter(item => item.match && Number(item.match[1]) <= Number(throughYear))
+      .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
+    transactions = sheets.flatMap(item => {
+      const lastRow = item.sheet.getLastRow();
+      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
+    });
+    years = sheets.map(item => Number(item.match[1]));
+  }
 
   return {
-    years: sheets.map(item => Number(item.match[1])),
+    years: years,
     transactions: transactions
   };
 }
 
-function appendTransaction_(token, transaction, entity) {
+function appendTransaction_(token, transaction, entity, spreadsheetId) {
   requireSession_(token);
   const date = String(transaction && transaction.data || '');
   const id = String(transaction && transaction.id || '');
@@ -151,8 +174,8 @@ function appendTransaction_(token, transaction, entity) {
   }
 
   const year = date.slice(0, 4);
-  const sheetName = ledgerSheetName_(year, entity);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const sheetName = spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(year, entity);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -183,11 +206,11 @@ function ledgerSheetName_(year, entity) {
   return normalizedEntity === 'business' ? 'AZIENDA_' + year : year;
 }
 
-function getInvoices_(token, anno) {
+function getInvoices_(token, anno, spreadsheetId) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Fatture');
   if (!sheet || sheet.getLastRow() < 2) return [];
 
@@ -197,9 +220,9 @@ function getInvoices_(token, anno) {
     .sort((left, right) => right.numero.localeCompare(left.numero));
 }
 
-function getCustomers_(token) {
+function getCustomers_(token, spreadsheetId) {
   requireSession_(token);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const sheet = spreadsheet.getSheetByName('Clienti');
   if (!sheet || sheet.getLastRow() < 2) return [];
@@ -208,10 +231,10 @@ function getCustomers_(token) {
     .sort((left, right) => left.ragioneSociale.localeCompare(right.ragioneSociale, 'it'));
 }
 
-function saveCustomer_(token, source) {
+function saveCustomer_(token, source, spreadsheetId) {
   requireSession_(token);
   const customer = normalizeCustomer_(source);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -255,11 +278,11 @@ function normalizeCustomer_(source) {
   return normalized;
 }
 
-function getCreditNotes_(token, anno) {
+function getCreditNotes_(token, anno, spreadsheetId) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName('NoteCredito');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
@@ -268,7 +291,7 @@ function getCreditNotes_(token, anno) {
     .sort((left, right) => right.numero.localeCompare(left.numero));
 }
 
-function issueCreditNote_(token, source) {
+function issueCreditNote_(token, source, spreadsheetId) {
   requireSession_(token);
   const note = source || {};
   const id = String(note.id || '');
@@ -287,7 +310,7 @@ function issueCreditNote_(token, source) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = getSpreadsheetForSession_(token);
+    const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = spreadsheet.getSheetByName('Fatture');
     const invoiceRow = invoiceSheet && findInvoiceRow_(invoiceSheet, fatturaId);
@@ -307,7 +330,9 @@ function issueCreditNote_(token, source) {
     if (duplicateIndex >= 0) {
       issued = JSON.parse(rows[duplicateIndex][7]);
       rowIndex = duplicateIndex + 2;
-      const existingLedger = spreadsheet.getSheetByName(ledgerSheetName_(issued.data.slice(0, 4), 'business'));
+      const existingLedger = spreadsheet.getSheetByName(
+        spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(issued.data.slice(0, 4), 'business')
+      );
       if (issued.stato === 'emessa' && existingLedger && ledgerHasTransaction_(existingLedger, id)) return issued;
     }
     const creditedCents = rows.reduce((sum, row) => {
@@ -341,7 +366,7 @@ function issueCreditNote_(token, source) {
       data, id, movement.conto, ('Nota di credito ' + number + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200),
       movement.gestione, movement.dare, movement.avere
     ]);
-    const ledger = getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
+    const ledger = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
     if (!ledgerHasTransaction_(ledger, id)) {
       ledger.getRange(ledger.getLastRow() + 1, 1, creditRows.length, 7).setValues(creditRows);
     }
@@ -386,9 +411,9 @@ function creditNoteJournalMovements_(invoice, amountCents) {
   return reversed.filter(movement => movement.dare > 0 || movement.avere > 0);
 }
 
-function getSuppliers_(token) {
+function getSuppliers_(token, spreadsheetId) {
   requireSession_(token);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Fornitori');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues()
@@ -396,14 +421,14 @@ function getSuppliers_(token) {
     .sort((left, right) => left.ragioneSociale.localeCompare(right.ragioneSociale, 'it'));
 }
 
-function saveSupplier_(token, source) {
+function saveSupplier_(token, source, spreadsheetId) {
   requireSession_(token);
-  return saveBusinessCounterparty_(token, source, 'Fornitori');
+  return saveBusinessCounterparty_(token, source, 'Fornitori', spreadsheetId);
 }
 
-function saveBusinessCounterparty_(token, source, sheetName) {
+function saveBusinessCounterparty_(token, source, sheetName, spreadsheetId) {
   const customer = normalizeCustomer_(source);
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -425,11 +450,11 @@ function saveBusinessCounterpartyRow_(spreadsheet, sheetName, customer) {
   sheet.getRange(rowIndex, 1, 1, 2).setValues([[customer.id, JSON.stringify(customer)]]);
 }
 
-function getExpenses_(token, anno) {
+function getExpenses_(token, anno, spreadsheetId) {
   requireSession_(token);
   const year = String(anno || '');
   if (!/^\d{4}$/.test(year)) throw new Error('Anno non valido.');
-  const spreadsheet = getSpreadsheetForSession_(token);
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName('Spese');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
@@ -438,7 +463,7 @@ function getExpenses_(token, anno) {
     .sort((left, right) => right.data.localeCompare(left.data));
 }
 
-function issueExpense_(token, source) {
+function issueExpense_(token, source, spreadsheetId) {
   requireSession_(token);
   const expense = source || {};
   const id = String(expense.id || '');
@@ -462,7 +487,7 @@ function issueExpense_(token, source) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = getSpreadsheetForSession_(token);
+    const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const sheet = getOrCreateSheet_(spreadsheet, 'Spese', [
       'ID', 'Anno', 'Data', 'Fornitore', 'Totale', 'Documento', 'Stato', 'Dettaglio JSON'
@@ -485,7 +510,7 @@ function issueExpense_(token, source) {
       if (bytes.length > 8 * 1024 * 1024) throw new Error('L’allegato supera il limite di 8 MB.');
       const name = sanitizeString_(attachment.nome).replace(/[\\/:*?"<>|]/g, '_') || 'documento';
       const blob = Utilities.newBlob(bytes, mimeType, name);
-      const folder = getExpenseUploadFolder_(token);
+      const folder = getExpenseUploadFolder_(token, spreadsheetId);
       const file = folder.createFile(blob);
       savedAttachment = { nome: name, mimeType: mimeType, url: file.getUrl() };
     }
@@ -511,7 +536,7 @@ function issueExpense_(token, source) {
         issued.numeroDocumento, 'in elaborazione', JSON.stringify(issued)
       ]]);
     }
-    const ledger = getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
+    const ledger = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
     const accounts = issued.conti || expense.conti || {};
     const vatAccount = sanitizeString_(accounts.ivaCredito) || 'IVA a credito';
     const supplierAccount = sanitizeString_(accounts.fornitori) || 'Debiti v/fornitori';
@@ -539,8 +564,14 @@ function issueExpense_(token, source) {
   }
 }
 
-function getExpenseUploadFolder_(token) {
+function getExpenseUploadFolder_(token, spreadsheetId) {
   const session = requireSession_(token);
+  if (spreadsheetId) {
+    const entity = getEntityRecordBySpreadsheetId_(spreadsheetId);
+    const entityFolder = DriveApp.getFolderById(entity.folderId);
+    const folders = entityFolder.getFoldersByName('Allegati spese');
+    return folders.hasNext() ? folders.next() : entityFolder.createFolder('Allegati spese');
+  }
   if (!session.user.expenseFolderId) {
     const folder = DriveApp.createFolder('Allegati Spese - ' + session.user.username);
     session.user.expenseFolderId = folder.getId();
@@ -674,27 +705,39 @@ function initializeWorkspaceSpreadsheet_(spreadsheet) {
   ]);
 }
 
-function getSpreadsheetForSession_(token) {
+function getSpreadsheetForSession_(token, spreadsheetId) {
   const session = requireSession_(token);
+  if (spreadsheetId) {
+    getEntityRecordBySpreadsheetId_(spreadsheetId);
+    return SpreadsheetApp.openById(String(spreadsheetId));
+  }
   if (!session.user.workspaceReady || !session.user.spreadsheetId) {
     throw new Error('BUSINESS_SETUP_REQUIRED');
   }
   return SpreadsheetApp.openById(session.user.spreadsheetId);
 }
 
-function issueInvoice_(token, source) {
+function getEntityLedgerSheet_(spreadsheet, year, spreadsheetId) {
+  return spreadsheetId
+    ? getOrCreateSheet_(spreadsheet, 'Movimenti_PD', [
+      'Data', 'ID', 'Conto', 'Descrizione', 'Gestione', 'Dare', 'Avere'
+    ])
+    : getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
+}
+
+function issueInvoice_(token, source, spreadsheetId) {
   requireSession_(token);
   const invoice = normalizeInvoice_(source);
   const year = invoice.data.slice(0, 4);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const spreadsheet = getSpreadsheetForSession_(token);
+    const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = getOrCreateSheet_(spreadsheet, 'Fatture', [
       'ID', 'Anno', 'Numero', 'Data', 'Cliente', 'Totale', 'Stato', 'Dettaglio JSON'
     ]);
-    const ledgerSheet = getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
+    const ledgerSheet = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
     const existingRow = findInvoiceRow_(invoiceSheet, invoice.id);
     let issued;
     let rowIndex = existingRow;

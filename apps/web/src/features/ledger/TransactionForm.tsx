@@ -43,12 +43,14 @@ function localDate(year: number) {
 export function TransactionForm({
   year,
   entity,
+  spreadsheetId,
   accounts,
   managements,
   onSaved,
 }: {
   year: number
   entity: 'private' | 'business'
+  spreadsheetId: string
   accounts: string[]
   managements: string[]
   onSaved: () => void
@@ -87,7 +89,7 @@ export function TransactionForm({
         id: createId(),
         totale: totalDebit,
       }
-      await queueTransaction(record, entity)
+      await queueTransaction(record, entity, spreadsheetId)
       setMessage(token && online
         ? 'Registrazione salvata in locale; sincronizzazione avviata.'
         : 'Registrazione salvata sul dispositivo, in attesa di rete e accesso GAS.')

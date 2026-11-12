@@ -4,6 +4,7 @@ import type { ExpenseDraft, ExpenseAttachmentDraft, IssuedExpense } from '../../
 import { calculateExpenseTotals, validateExpense } from '../../domain/expenses'
 import type { InvoiceCustomer } from '../../domain/invoicing'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
+import { useEntityStore } from '../../stores/entityStore'
 import { useProfileStore } from '../../stores/profileStore'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
@@ -73,6 +74,7 @@ function fileAsBase64(file: File): Promise<ExpenseAttachmentDraft> {
 export function ExpensesPage({ year }: { year: number }) {
   const token = useGasSessionStore((state) => state.token)
   const clearToken = useGasSessionStore((state) => state.clearToken)
+  const spreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
   const profile = useProfileStore((state) => state.companyProfile)
   const [view, setView] = useState<'new' | 'archive' | 'suppliers'>('new')
   const [draft, setDraft] = useState(() => newExpense(profile.conti))
@@ -90,12 +92,12 @@ export function ExpensesPage({ year }: { year: number }) {
   const [savingSupplier, setSavingSupplier] = useState(false)
   const totals = useMemo(() => calculateExpenseTotals(draft), [draft])
   const visibleExpenses = useMemo(
-    () => expenseScope === `${year}:${token}` ? expenses : [],
-    [expenseScope, expenses, token, year],
+    () => expenseScope === `${year}:${token}:${spreadsheetId}` ? expenses : [],
+    [expenseScope, expenses, spreadsheetId, token, year],
   )
   const visibleSuppliers = useMemo(
-    () => supplierScope === token ? suppliers : [],
-    [supplierScope, suppliers, token],
+    () => supplierScope === `${token}:${spreadsheetId}` ? suppliers : [],
+    [supplierScope, spreadsheetId, suppliers, token],
   )
   const filteredExpenses = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('it')
@@ -112,14 +114,17 @@ export function ExpensesPage({ year }: { year: number }) {
   }, [supplierQuery, visibleSuppliers])
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !spreadsheetId) return
     let cancelled = false
-    Promise.all([fetchExpenses(year, token), fetchSuppliers(token)]).then(([loadedExpenses, loadedSuppliers]) => {
+    Promise.all([
+      fetchExpenses(year, token, spreadsheetId),
+      fetchSuppliers(token, spreadsheetId),
+    ]).then(([loadedExpenses, loadedSuppliers]) => {
       if (cancelled) return
       setExpenses(loadedExpenses)
-      setExpenseScope(`${year}:${token}`)
+      setExpenseScope(`${year}:${token}:${spreadsheetId}`)
       setSuppliers(loadedSuppliers)
-      setSupplierScope(token)
+      setSupplierScope(`${token}:${spreadsheetId}`)
       setError('')
     }).catch((loadError: unknown) => {
       if (cancelled) return
@@ -128,7 +133,7 @@ export function ExpensesPage({ year }: { year: number }) {
       if (text.includes('SESSION_EXPIRED')) clearToken()
     })
     return () => { cancelled = true }
-  }, [clearToken, token, year])
+  }, [clearToken, spreadsheetId, token, year])
 
   async function handleFile(file?: File) {
     if (!file) return
@@ -159,15 +164,19 @@ export function ExpensesPage({ year }: { year: number }) {
       setError('Accedi a GAS prima di registrare una spesa.')
       return
     }
+    if (!spreadsheetId) {
+      setError('Seleziona un’entità aziendale prima di registrare una spesa.')
+      return
+    }
     setSaving(true)
     try {
-      const issued = await issueExpense(token, draft)
+      const issued = await issueExpense(token, draft, spreadsheetId || undefined)
       setExpenses((current) => [issued, ...current.filter((item) => item.id !== issued.id)])
-      setExpenseScope(`${year}:${token}`)
+      setExpenseScope(`${year}:${token}:${spreadsheetId}`)
       setSuppliers((current) => [issued.fornitore, ...current.filter((item) => item.id !== issued.fornitore.id)].sort(
         (left, right) => left.ragioneSociale.localeCompare(right.ragioneSociale, 'it'),
       ))
-      setSupplierScope(token)
+      setSupplierScope(`${token}:${spreadsheetId}`)
       setSavedMessage(`Spesa registrata per ${euro.format(issued.totale)}.`)
       setDraft(newExpense(profile.conti))
       if (issued.allegatoSalvato) setView('archive')
@@ -182,7 +191,7 @@ export function ExpensesPage({ year }: { year: number }) {
 
   async function handleSaveSupplier(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token || !supplierDraft) return
+    if (!token || !spreadsheetId || !supplierDraft) return
     if (!supplierDraft.partitaIva?.trim() && !supplierDraft.codiceFiscale?.trim()) {
       setSupplierError('Inserisci la partita IVA o il codice fiscale.')
       return
@@ -190,11 +199,11 @@ export function ExpensesPage({ year }: { year: number }) {
     setSavingSupplier(true)
     setSupplierError('')
     try {
-      const saved = await saveSupplier(token, supplierDraft)
+      const saved = await saveSupplier(token, supplierDraft, spreadsheetId || undefined)
       setSuppliers((current) => [saved, ...current.filter((item) => item.id !== saved.id)].sort(
         (left, right) => left.ragioneSociale.localeCompare(right.ragioneSociale, 'it'),
       ))
-      setSupplierScope(token)
+      setSupplierScope(`${token}:${spreadsheetId}`)
       setDraft((current) => ({ ...current, fornitore: { ...saved } }))
       setSupplierDraft(null)
     } catch (saveError) {

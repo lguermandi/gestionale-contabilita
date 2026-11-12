@@ -12,6 +12,7 @@ import {
   type IssuedInvoice,
 } from '../../domain/invoicing'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
+import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { downloadInvoicePdf } from './invoicePdf'
@@ -77,6 +78,7 @@ function emptyCustomer(): InvoiceCustomer {
 export function InvoicesPage({ year }: { year: number }) {
   const token = useGasSessionStore((state) => state.token)
   const clearToken = useGasSessionStore((state) => state.clearToken)
+  const spreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
   const refreshLedger = useLedgerStore((state) => state.refresh)
   const company = useProfileStore((state) => state.companyProfile)
   const setCompanyProfile = useProfileStore((state) => state.setCompanyProfile)
@@ -113,10 +115,10 @@ export function InvoicesPage({ year }: { year: number }) {
   const [saving, setSaving] = useState(false)
   const totals = useMemo(() => calculateInvoiceTotals(draft), [draft])
   const visibleInvoices = useMemo(
-    () => invoiceScope === `${year}:${token}` ? invoices : [],
-    [invoiceScope, invoices, token, year],
+    () => invoiceScope === `${year}:${token}:${spreadsheetId}` ? invoices : [],
+    [invoiceScope, invoices, spreadsheetId, token, year],
   )
-  const scopedCreditNotes = creditNoteScope === `${year}:${token}` ? creditNotes : []
+  const scopedCreditNotes = creditNoteScope === `${year}:${token}:${spreadsheetId}` ? creditNotes : []
   const availableToCredit = (invoice: IssuedInvoice) => {
     const alreadyCreditedCents = scopedCreditNotes
       .filter((note) => note.fatturaId === invoice.id)
@@ -150,8 +152,8 @@ export function InvoicesPage({ year }: { year: number }) {
   const safeInvoicePageNumber = Math.min(invoicePageNumber, invoicePageCount)
   const pagedInvoices = filteredInvoices.slice((safeInvoicePageNumber - 1) * invoicePageSize, safeInvoicePageNumber * invoicePageSize)
   const scopedCustomers = useMemo(
-    () => customerScope === token ? customers : [],
-    [customerScope, customers, token],
+    () => customerScope === `${token}:${spreadsheetId}` ? customers : [],
+    [customerScope, customers, spreadsheetId, token],
   )
   const visibleCustomers = useMemo(() => {
     const query = customerQuery.trim().toLocaleLowerCase('it')
@@ -162,12 +164,12 @@ export function InvoicesPage({ year }: { year: number }) {
   }, [customerQuery, scopedCustomers])
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !spreadsheetId) return
     let cancelled = false
-    fetchInvoices(year, token).then((result) => {
+    fetchInvoices(year, token, spreadsheetId).then((result) => {
       if (!cancelled) {
         setInvoices(result)
-        setInvoiceScope(`${year}:${token}`)
+        setInvoiceScope(`${year}:${token}:${spreadsheetId}`)
         setLoadError('')
       }
     }).catch((error: unknown) => {
@@ -177,29 +179,29 @@ export function InvoicesPage({ year }: { year: number }) {
       if (text.includes('SESSION_EXPIRED')) clearToken()
     })
     return () => { cancelled = true }
-  }, [clearToken, token, year])
+  }, [clearToken, spreadsheetId, token, year])
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !spreadsheetId) return
     let cancelled = false
-    fetchCreditNotes(year, token).then((result) => {
+    fetchCreditNotes(year, token, spreadsheetId).then((result) => {
       if (!cancelled) {
         setCreditNotes(result)
-        setCreditNoteScope(`${year}:${token}`)
+        setCreditNoteScope(`${year}:${token}:${spreadsheetId}`)
       }
     }).catch((error: unknown) => {
       if (!cancelled) setCreditError(error instanceof Error ? error.message : 'Impossibile caricare le note di credito.')
     })
     return () => { cancelled = true }
-  }, [clearToken, token, year])
+  }, [clearToken, spreadsheetId, token, year])
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !spreadsheetId) return
     let cancelled = false
-    fetchCustomers(token).then((result) => {
+    fetchCustomers(token, spreadsheetId).then((result) => {
       if (!cancelled) {
         setCustomers(result)
-        setCustomerScope(token)
+        setCustomerScope(`${token}:${spreadsheetId}`)
         setCustomerLoadError('')
       }
     }).catch((error: unknown) => {
@@ -209,7 +211,7 @@ export function InvoicesPage({ year }: { year: number }) {
       if (text.includes('SESSION_EXPIRED')) clearToken()
     })
     return () => { cancelled = true }
-  }, [clearToken, token])
+  }, [clearToken, spreadsheetId, token])
 
   function updateCustomer(key: keyof InvoiceDraft['cliente'], value: string) {
     setDraft((current) => ({ ...current, cliente: { ...current.cliente, [key]: value } }))
@@ -232,15 +234,15 @@ export function InvoicesPage({ year }: { year: number }) {
 
   async function handleSaveCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token || !customerDraft) return
+    if (!token || !spreadsheetId || !customerDraft) return
     setSavingCustomer(true)
     setCustomerError('')
     try {
-      const saved = await saveCustomer(token, customerDraft)
+      const saved = await saveCustomer(token, customerDraft, spreadsheetId || undefined)
       setCustomers((current) => [saved, ...current.filter((item) => item.id !== saved.id)].sort(
         (left, right) => left.ragioneSociale.localeCompare(right.ragioneSociale, 'it'),
       ))
-      setCustomerScope(token)
+      setCustomerScope(`${token}:${spreadsheetId}`)
       setDraft((current) => ({ ...current, cliente: { ...saved } }))
       setCustomerDraft(null)
     } catch (error) {
@@ -257,6 +259,10 @@ export function InvoicesPage({ year }: { year: number }) {
     setCreditError('')
     if (!token) {
       setCreditError('Accedi a GAS per emettere una nota di credito.')
+      return
+    }
+    if (!spreadsheetId) {
+      setCreditError('Seleziona un’entità aziendale prima di emettere una nota di credito.')
       return
     }
     if (creditDate.slice(0, 4) !== String(year)) {
@@ -283,9 +289,9 @@ export function InvoicesPage({ year }: { year: number }) {
     }
     setCreditSaving(true)
     try {
-      const issued = await issueCreditNote(token, creditNote)
+      const issued = await issueCreditNote(token, creditNote, spreadsheetId || undefined)
       setCreditNotes((current) => [issued, ...current.filter((note) => note.id !== issued.id)])
-      setCreditNoteScope(`${year}:${token}`)
+      setCreditNoteScope(`${year}:${token}:${spreadsheetId}`)
       setCreditAmount('')
       setCreditReason('')
       setCreditError('')
@@ -312,13 +318,17 @@ export function InvoicesPage({ year }: { year: number }) {
       setMessage('Accedi a GAS dalla barra superiore prima di emettere la fattura.')
       return
     }
+    if (!spreadsheetId) {
+      setMessage('Seleziona un’entità aziendale prima di emettere la fattura.')
+      return
+    }
 
     setSaving(true)
     try {
-      const invoice = await issueInvoice(token, draft)
+      const invoice = await issueInvoice(token, draft, spreadsheetId || undefined)
       setInvoices((current) => [invoice, ...current.filter((item) => item.id !== invoice.id)])
-      setInvoiceScope(`${year}:${token}`)
-      void refreshLedger(year, token, 'business')
+      setInvoiceScope(`${year}:${token}:${spreadsheetId}`)
+      void refreshLedger(year, token, 'business', spreadsheetId)
       setCompanyProfile({ ...company, conti: draft.conti })
       try {
         downloadInvoicePdf(invoice, company)

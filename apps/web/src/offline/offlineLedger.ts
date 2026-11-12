@@ -9,6 +9,7 @@ export type LocalSyncStatus = 'pending' | 'synced'
 export interface LocalLedgerRecord {
     id: string
     entity: LedgerEntity
+    spreadsheetId?: string
     year: number
     transaction: LedgerTransaction
     status: LocalSyncStatus
@@ -24,15 +25,23 @@ export class OfflineLedgerDatabase extends Dexie {
         this.version(1).stores({
             records: 'id, [entity+year], status, createdAt',
         })
+        this.version(2).stores({
+            records: 'id, [entity+year], [spreadsheetId+year], status, createdAt',
+        })
     }
 }
 
 export const offlineLedger = new OfflineLedgerDatabase()
 
-export async function queueTransaction(transaction: LedgerTransaction, entity: LedgerEntity): Promise<void> {
+export async function queueTransaction(
+    transaction: LedgerTransaction,
+    entity: LedgerEntity,
+    spreadsheetId?: string,
+): Promise<void> {
     await offlineLedger.records.put({
-        id: transaction.id,
+        id: spreadsheetId ? `${spreadsheetId}:${transaction.id}` : transaction.id,
         entity,
+        spreadsheetId,
         year: Number(transaction.data.slice(0, 4)),
         transaction,
         status: 'pending',
@@ -40,13 +49,20 @@ export async function queueTransaction(transaction: LedgerTransaction, entity: L
     })
 }
 
-export async function getLocalTransactions(year: number, entity: LedgerEntity): Promise<LocalLedgerRecord[]> {
+export async function getLocalTransactions(year: number, entity: LedgerEntity, spreadsheetId?: string): Promise<LocalLedgerRecord[]> {
+    if (spreadsheetId) {
+        return offlineLedger.records.where('[spreadsheetId+year]').equals([spreadsheetId, year]).sortBy('createdAt')
+    }
     return offlineLedger.records.where('[entity+year]').equals([entity, year]).sortBy('createdAt')
 }
 
-export async function getLocalTransactionHistory(throughYear: number, entity: LedgerEntity): Promise<LocalLedgerRecord[]> {
+export async function getLocalTransactionHistory(throughYear: number, entity: LedgerEntity, spreadsheetId?: string): Promise<LocalLedgerRecord[]> {
     return offlineLedger.records.toCollection()
-        .filter((record) => record.entity === entity && record.year <= throughYear)
+        .filter((record) => (
+            spreadsheetId
+                ? record.spreadsheetId === spreadsheetId
+                : record.entity === entity && !record.spreadsheetId
+        ) && record.year <= throughYear)
         .sortBy('createdAt')
 }
 
@@ -87,7 +103,11 @@ async function doSync(token: string, options: SyncOptions): Promise<SyncSummary>
     const pending = await getPendingTransactions()
     let synced = 0
     for (const localRecord of pending) {
-        await send(token, localRecord.transaction, localRecord.entity)
+        if (localRecord.spreadsheetId) {
+            await send(token, localRecord.transaction, localRecord.entity, localRecord.spreadsheetId)
+        } else {
+            await send(token, localRecord.transaction, localRecord.entity)
+        }
         await offlineLedger.records.update(localRecord.id, { status: 'synced', syncedAt: Date.now() })
         synced += 1
     }

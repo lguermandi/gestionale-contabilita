@@ -13,7 +13,7 @@ interface LedgerState {
   error: string | null
   historyError: string | null
   setSelectedYear: (year: number) => void
-  refresh: (year?: number, token?: string | null, entity?: LedgerEntity) => Promise<void>
+  refresh: (year?: number, token?: string | null, entity?: LedgerEntity, spreadsheetId?: string | null) => Promise<void>
 }
 
 let latestRequest = 0
@@ -27,14 +27,25 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   error: null,
   historyError: null,
   setSelectedYear: (selectedYear) => set({ selectedYear }),
-  refresh: async (requestedYear, token, entity = 'private') => {
+  refresh: async (requestedYear, token, entity = 'private', spreadsheetId) => {
     const requestId = ++latestRequest
     const year = requestedYear ?? get().selectedYear
     set({ loading: true, historyLoading: true, error: null, historyError: null })
     try {
+      if (!spreadsheetId) {
+        set({
+          transactions: [],
+          historyTransactions: [],
+          loading: false,
+          historyLoading: false,
+          error: null,
+          historyError: null,
+        })
+        return
+      }
       const [localRecords, localHistoryRecords] = await Promise.all([
-        getLocalTransactions(year, entity),
-        getLocalTransactionHistory(year - 1, entity),
+        getLocalTransactions(year, entity, spreadsheetId),
+        getLocalTransactionHistory(year - 1, entity, spreadsheetId),
       ])
       const localTransactions = localRecords.map((record) => record.transaction)
       const localHistory = localHistoryRecords.map((record) => record.transaction)
@@ -54,8 +65,8 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       }
 
       const [currentResult, historyResult] = await Promise.allSettled([
-        fetchTransactions(year, token, entity),
-        fetchTransactionHistory(year - 1, token, entity),
+        fetchTransactions(year, token, entity, spreadsheetId),
+        fetchTransactionHistory(year - 1, token, entity, spreadsheetId),
       ])
       if (requestId !== latestRequest) return
 

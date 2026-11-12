@@ -14,6 +14,7 @@ import {
   type GoogleDriveDestination,
 } from './api/googleDrivePicker'
 import { useGasSessionStore } from './stores/gasSessionStore'
+import { useEntityStore } from './stores/entityStore'
 import { useLedgerStore } from './stores/ledgerStore'
 import { useOfflineSyncStore } from './stores/offlineSyncStore'
 import { useProfileStore } from './stores/profileStore'
@@ -33,8 +34,10 @@ const ExpensesPage = lazy(() => import('./features/expenses/ExpensesPage').then(
 const CompanySettingsPage = lazy(() => import('./features/settings/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
 
 function BusinessOnly({ children }: { children: ReactNode }) {
-  const activeProfile = useProfileStore((state) => state.activeProfile)
-  return activeProfile === 'business' ? <>{children}</> : <Navigate to="/" replace />
+  const activeEntity = useEntityStore((state) => state.entities.find(
+    (entity) => entity.spreadsheetId === state.activeSpreadsheetId,
+  ))
+  return activeEntity?.tipologia === 'Azienda' ? <>{children}</> : <Navigate to="/" replace />
 }
 
 function GasSessionControl() {
@@ -107,7 +110,11 @@ function GasSessionControl() {
 function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
   const token = useGasSessionStore((state) => state.token)
   const clearToken = useGasSessionStore((state) => state.clearToken)
-  const activeProfile = useProfileStore((state) => state.activeProfile)
+  const hasEntities = useEntityStore((state) => state.entities.length > 0)
+  const activeEntity = useEntityStore((state) => state.entities.find(
+    (entity) => entity.spreadsheetId === state.activeSpreadsheetId,
+  ))
+  const activeProfile = activeEntity?.tipologia === 'Azienda' ? 'business' : 'private'
   const setActiveProfile = useProfileStore((state) => state.setActiveProfile)
   const [workspaceStatus, setWorkspaceStatus] = useState<{
     token: string
@@ -130,7 +137,7 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
   const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
-    if (!token || activeProfile !== 'business') return
+    if (!token || activeProfile !== 'business' || hasEntities) return
 
     let active = true
     getWorkspaceSetupStatus(token)
@@ -155,23 +162,23 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
         if (message.includes('SESSION_EXPIRED')) clearToken()
       })
     return () => { active = false }
-  }, [activeProfile, clearToken, retryCount, token])
+  }, [activeProfile, clearToken, hasEntities, retryCount, token])
 
   const currentStatus = workspaceStatus?.token === token ? workspaceStatus : null
-  const checking = Boolean(token && activeProfile === 'business' && !currentStatus)
+  const checking = Boolean(token && activeProfile === 'business' && !hasEntities && !currentStatus)
   const setupRequired = currentStatus?.setupRequired ?? false
   const statusError = currentStatus?.error ?? ''
   const currentCompletedWorkspace = completedWorkspace?.token === token ? completedWorkspace : null
 
   useEffect(() => {
-    if (!token || activeProfile !== 'business' || !setupRequired || Capacitor.isNativePlatform()) return
+    if (!token || activeProfile !== 'business' || hasEntities || !setupRequired || Capacitor.isNativePlatform()) return
 
     let active = true
     void preloadGoogleDrivePicker().catch((error: unknown) => {
       if (active) setSetupError(error instanceof Error ? error.message : 'Configurazione Google Drive non riuscita.')
     })
     return () => { active = false }
-  }, [activeProfile, setupRequired, token])
+  }, [activeProfile, hasEntities, setupRequired, token])
 
   async function handleChooseDestination() {
     if (Capacitor.isNativePlatform()) {
@@ -240,7 +247,7 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
     }
   }
 
-  if (!token || activeProfile !== 'business' || checking || (!setupRequired && !currentCompletedWorkspace && !statusError)) return null
+  if (!token || activeProfile !== 'business' || hasEntities || checking || (!setupRequired && !currentCompletedWorkspace && !statusError)) return null
 
   if (statusError && !setupRequired && !currentCompletedWorkspace) {
     return (
@@ -325,8 +332,15 @@ function WorkspaceSetupGate({ onReady }: { onReady: () => void }) {
 }
 
 function AppShell() {
-  const activeProfile = useProfileStore((state) => state.activeProfile)
-  const setActiveProfile = useProfileStore((state) => state.setActiveProfile)
+  const entities = useEntityStore((state) => state.entities)
+  const activeEntityId = useEntityStore((state) => state.activeEntityId)
+  const activeSpreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
+  const entitiesLoading = useEntityStore((state) => state.loading)
+  const loadEntities = useEntityStore((state) => state.loadEntities)
+  const clearEntities = useEntityStore((state) => state.clearEntities)
+  const selectEntity = useEntityStore((state) => state.selectEntity)
+  const activeEntity = entities.find((entity) => entity.id === activeEntityId)
+  const activeProfile = activeEntity?.tipologia === 'Azienda' ? 'business' : 'private'
   const year = useLedgerStore((state) => state.selectedYear)
   const setYear = useLedgerStore((state) => state.setSelectedYear)
   const transactions = useLedgerStore((state) => state.transactions)
@@ -347,8 +361,13 @@ function AppShell() {
     : navigation
 
   useEffect(() => {
-    void refresh(year, token, activeProfile)
-  }, [activeProfile, refresh, token, year])
+    if (token) void loadEntities(token)
+    else clearEntities()
+  }, [clearEntities, loadEntities, token])
+
+  useEffect(() => {
+    void refresh(year, token, activeProfile, activeSpreadsheetId)
+  }, [activeProfile, activeSpreadsheetId, refresh, token, year])
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 md:flex">
@@ -389,21 +408,31 @@ function AppShell() {
             <span className="text-xs text-stone-500" role="status">{syncing ? 'Sincronizzazione…' : online ? (pending ? `${pending} in coda` : ledgerError ? 'Dati non aggiornati' : 'Online') : `Offline · ${pending} in coda`}</span>
           </div>
           <label className="flex items-center gap-3 text-sm">
-            <span className="hidden text-stone-600 sm:inline">Profilo</span>
-            <select aria-label="Profilo contabile attivo" className="min-h-10 border border-stone-300 bg-white px-3 text-sm text-stone-900 focus:border-emerald-700 focus:outline-none" value={activeProfile} onChange={(event) => setActiveProfile(event.target.value as 'private' | 'business')}>
-              <option value="private">Privato</option>
-              <option value="business">Azienda / Partita IVA</option>
+            <span className="hidden text-stone-600 sm:inline">Entità</span>
+            <select
+              aria-label="Entità contabile attiva"
+              className="min-h-10 max-w-56 border border-stone-300 bg-white px-3 text-sm text-stone-900 focus:border-emerald-700 focus:outline-none"
+              value={activeEntityId || ''}
+              disabled={!token || entitiesLoading || !entities.length}
+              onChange={(event) => selectEntity(event.target.value)}
+            >
+              {!entities.length && <option value="">{token ? 'Nessuna entità' : 'Accedi a GAS'}</option>}
+              {entities.map((entity) => (
+                <option key={entity.id} value={entity.id}>{entity.nomeEntita} · {entity.tipologia}</option>
+              ))}
             </select>
           </label>
           <GasSessionControl />
         </header>
 
-        <WorkspaceSetupGate onReady={() => void refresh(year, token, activeProfile)} />
+        <WorkspaceSetupGate onReady={() => void refresh(year, token, activeProfile, activeSpreadsheetId)} />
 
         <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-5 py-10 text-sm text-stone-500 md:px-8">Caricamento vista…</div>}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/partita-doppia" element={<TransactionForm key={`${activeProfile}-${year}`} year={year} entity={activeProfile} accounts={reports.conti} managements={reports.gestioni} onSaved={() => void refresh(year, token, activeProfile)} />} />
+            <Route path="/partita-doppia" element={activeSpreadsheetId
+              ? <TransactionForm key={`${activeSpreadsheetId}-${year}`} year={year} entity={activeProfile} spreadsheetId={activeSpreadsheetId} accounts={reports.conti} managements={reports.gestioni} onSaved={() => void refresh(year, token, activeProfile, activeSpreadsheetId)} />
+              : <p className="mx-auto max-w-6xl px-5 py-8 text-sm text-stone-600 md:px-8">Accedi a GAS e crea o seleziona un’entità dalle Impostazioni.</p>} />
             <Route path="/bilancio" element={<ReportsPage />} />
             <Route path="/fatturazione" element={<BusinessOnly><InvoicesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/spese" element={<BusinessOnly><ExpensesPage key={year} year={year} /></BusinessOnly>} />

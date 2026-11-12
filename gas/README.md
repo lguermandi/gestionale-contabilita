@@ -44,6 +44,11 @@ eseguono la migrazione: il vecchio spreadsheet diventa il database movimenti,
 i tab strutturali sono copiati nel nuovo file dedicato e i dati in
 `Movimenti_PD` sono distribuiti nei tab annuali. Le copie strutturali legacy
 vengono rimosse dal database movimenti solo dopo essere state copiate.
+Se un indice è già stato migrato ma il record privato punta al file vuoto
+anziché al `Master contabile` esistente, fai prima una copia di sicurezza, poi
+esegui `linkPrivateEntityToMasterMovements()` dall'editor Apps Script. La
+funzione richiede una sola entità `Privato`, collega il Master nella colonna
+`Movimenti_Spreadsheet_ID` e lo sposta nella cartella dell'entità.
 
 Lo spazio contiene le cartelle `Contabilità`, `Fatture emesse`, `Ricevute`,
 `Estratti conto`, `Spese` e `Documenti/Allegati spese`. In `Contabilità` viene

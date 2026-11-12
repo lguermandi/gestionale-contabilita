@@ -102,6 +102,48 @@ function getEntities() {
     ));
 }
 
+function linkPrivateEntityToMasterMovements() {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const system = getOrCreateEntitySystem_();
+      const masterFile = findUniqueDriveFileByName_('Master contabile');
+      if (!masterFile) {
+        throw new Error('Non è stato trovato un Google Sheet chiamato "Master contabile".');
+      }
+
+      const lastRow = system.indexSheet.getLastRow();
+      if (lastRow < 2) throw new Error('L’indice non contiene entità.');
+      const rows = system.indexSheet.getRange(2, 1, lastRow - 1, ENTITY_INDEX_HEADERS_.length)
+        .getValues();
+      const privateRows = rows
+        .map((row, index) => ({ row: row, sheetRow: index + 2 }))
+        .filter(item => String(item.row[2]).trim().toLowerCase() === 'privato');
+      if (privateRows.length !== 1) {
+        throw new Error('Per collegare automaticamente il Master deve esserci una sola entità di tipo Privato.');
+      }
+      if (rows.some(row => String(row[5]) === masterFile.getId())
+        && String(privateRows[0].row[5]) !== masterFile.getId()) {
+        throw new Error('Il Master è già associato a un’altra entità.');
+      }
+
+      const entityRow = privateRows[0];
+      const folder = DriveApp.getFolderById(String(entityRow.row[3]));
+      const movementsSpreadsheet = SpreadsheetApp.openById(masterFile.getId());
+      masterFile.moveTo(folder);
+      system.indexSheet.getRange(entityRow.sheetRow, 6).setValue(movementsSpreadsheet.getId());
+      SpreadsheetApp.flush();
+
+      return {
+        nomeEntita: String(entityRow.row[1]),
+        movementsSpreadsheetId: movementsSpreadsheet.getId(),
+        movementsSpreadsheetUrl: movementsSpreadsheet.getUrl()
+      };
+    } finally {
+      lock.releaseLock();
+    }
+}
+
 function getEntityRecordBySpreadsheetId_(spreadsheetId) {
   const id = String(spreadsheetId || '').trim();
   if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) {
@@ -248,7 +290,11 @@ function setEntityIndexHeaders_(sheet) {
 
 function getOrCreateMigratedStructureSpreadsheet_(legacySpreadsheet, folder, entityName) {
   const structureName = 'Contabilità - ' + entityName;
-  const existingFile = findUniqueEntityFile_(folder, structureName);
+  let existingFile = findUniqueEntityFile_(folder, structureName);
+  if (existingFile && existingFile.getId() === legacySpreadsheet.getId()) {
+    existingFile.setName('Movimenti PD - ' + entityName);
+    existingFile = null;
+  }
   const structure = existingFile
     ? SpreadsheetApp.openById(existingFile.getId())
     : SpreadsheetApp.create(structureName);

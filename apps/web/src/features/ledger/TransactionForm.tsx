@@ -131,7 +131,7 @@ export function TransactionForm({
           </label>
         </div>
 
-        <div className="overflow-x-auto border border-stone-200 bg-white">
+        <div className="hidden overflow-x-auto border border-stone-200 bg-white md:block">
           <table className="w-full min-w-[860px] border-collapse text-left text-sm">
             <thead className="bg-stone-100 text-xs uppercase text-stone-600">
               <tr>
@@ -146,7 +146,7 @@ export function TransactionForm({
               {movements.map((movement) => (
                 <tr key={movement.key}>
                   <td className="p-2">
-                    <input className={inputClass} list="ledger-accounts" aria-label="Conto" value={movement.conto} onChange={(event) => updateMovement(movement.key, 'conto', event.target.value)} required />
+                    <input className={inputClass} list="ledger-accounts" aria-label="Conto" value={movement.conto} onChange={(event) => updateMovement(movement.key, 'conto', event.target.value)} />
                   </td>
                   <td className="p-2">
                     <input className={inputClass} list="ledger-managements" aria-label="Gestione" value={movement.gestione} onChange={(event) => updateMovement(movement.key, 'gestione', event.target.value)} />
@@ -164,8 +164,6 @@ export function TransactionForm({
               ))}
             </tbody>
           </table>
-          <datalist id="ledger-accounts">{accounts.map((account) => <option key={account} value={account} />)}</datalist>
-          <datalist id="ledger-managements">{managements.map((management) => <option key={management} value={management} />)}</datalist>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 px-4 py-3">
             <button className="text-sm font-medium text-emerald-900 underline" type="button" onClick={() => setMovements((current) => [...current, newMovement()])}>Aggiungi riga</button>
             <div className="flex gap-6 text-sm tabular-nums">
@@ -177,6 +175,38 @@ export function TransactionForm({
             </div>
           </div>
         </div>
+
+        <div className="grid gap-3 md:hidden">
+          {movements.map((movement, index) => (
+            <section key={movement.key} className="grid gap-3 border border-stone-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-stone-800">Riga {index + 1}</h2>
+                <button className="size-10 text-lg text-stone-500 hover:bg-stone-100 disabled:opacity-30" type="button" aria-label={`Rimuovi riga ${index + 1}`} title="Rimuovi riga" disabled={movements.length <= 2} onClick={() => setMovements((current) => current.filter((item) => item.key !== movement.key))}>×</button>
+              </div>
+              <label className="block text-xs font-medium text-stone-600">
+                Conto
+                <input className={`${inputClass} mt-1`} list="ledger-accounts" value={movement.conto} onChange={(event) => updateMovement(movement.key, 'conto', event.target.value)} />
+              </label>
+              <label className="block text-xs font-medium text-stone-600">
+                Gestione
+                <input className={`${inputClass} mt-1`} list="ledger-managements" value={movement.gestione} onChange={(event) => updateMovement(movement.key, 'gestione', event.target.value)} />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-xs font-medium text-stone-600">
+                  Dare
+                  <input className={`${inputClass} mt-1 text-right tabular-nums`} type="number" min="0" step="0.01" value={movement.dare} onChange={(event) => updateMovement(movement.key, 'dare', event.target.value)} />
+                </label>
+                <label className="block text-xs font-medium text-stone-600">
+                  Avere
+                  <input className={`${inputClass} mt-1 text-right tabular-nums`} type="number" min="0" step="0.01" value={movement.avere} onChange={(event) => updateMovement(movement.key, 'avere', event.target.value)} />
+                </label>
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <datalist id="ledger-accounts">{accounts.map((account) => <option key={account} value={account} />)}</datalist>
+        <datalist id="ledger-managements">{managements.map((management) => <option key={management} value={management} />)}</datalist>
 
         {errors.length > 0 && <ul className="list-disc border border-rose-200 bg-rose-50 px-8 py-3 text-sm text-rose-800">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
         {message && <p className="text-sm text-stone-700" role="status">{message}</p>}

@@ -87,9 +87,9 @@ function GasSessionControl() {
   }
 
   return (
-    <details className="relative">
-      <summary className="min-h-10 cursor-pointer list-none border border-stone-300 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">Accedi a GAS</summary>
-      <form onSubmit={handleSubmit} className="absolute right-0 z-10 mt-2 grid w-72 gap-3 border border-stone-200 bg-white p-4 shadow-lg">
+    <details className="relative w-full basis-full md:w-auto md:basis-auto">
+      <summary className="min-h-10 cursor-pointer list-none border border-stone-300 px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">Accedi</summary>
+      <form onSubmit={handleSubmit} className="absolute left-0 right-auto z-10 mt-2 grid w-72 max-w-[calc(100vw-2rem)] gap-3 border border-stone-200 bg-white p-4 shadow-lg md:left-auto md:right-0">
         <p className="text-sm font-medium text-stone-900">Sessione Google Apps Script</p>
         <label className="text-xs text-stone-600">Utente
           <input autoComplete="username" className="mt-1 min-h-10 w-full border border-stone-300 px-3 text-sm text-stone-900" value={username} onChange={(event) => setUsername(event.target.value)} required />
@@ -358,14 +358,14 @@ function AppShell() {
           <span className="grid size-9 place-items-center bg-emerald-800 text-sm font-bold text-white">GC</span>
           <span className="font-semibold">Gestionale contabile</span>
         </div>
-        <nav aria-label="Navigazione principale" className="flex gap-1 overflow-x-auto px-3 pb-3 md:block md:px-3 md:py-4">
+        <nav aria-label="Navigazione principale" className="grid grid-cols-2 gap-1 px-3 pb-3 sm:flex sm:flex-wrap md:block md:px-3 md:py-4">
           {visibleNavigation.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === '/'}
               className={({ isActive }) =>
-                `block shrink-0 px-3 py-2 text-sm ${isActive
+                `block min-h-11 px-3 py-3 text-sm sm:shrink-0 md:min-h-0 md:py-2 ${isActive
                   ? 'bg-emerald-50 font-semibold text-emerald-900'
                   : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
                 }`

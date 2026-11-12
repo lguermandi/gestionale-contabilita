@@ -7,8 +7,8 @@ import { buildCashFlowStatement, type CashFlowSection, type CashFlowStatement } 
 import { buildIncomeStatement, type IncomeStatement, type IncomeStatementSection } from './incomeStatement'
 import { ReportExportActions, type ReportExportData } from './ReportExport'
 
-const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
-const balanceNumber = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', useGrouping: 'always' })
+const balanceNumber = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })
 const balanceAmount = (amount: number | null) => amount === null ? '—' : amount === 0 ? '—' : balanceNumber.format(amount)
 
 export function ReportsPage() {

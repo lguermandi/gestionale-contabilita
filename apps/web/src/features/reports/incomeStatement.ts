@@ -74,7 +74,14 @@ export function buildIncomeStatement(rows: MonthlyIncomeLine[]): IncomeStatement
   const amounts = new Map<string, IncomeStatementRow[]>()
 
   rows.forEach((row) => {
-    if (row.ricavi > 0) addRow(row, 'positive', row.ricavi, classifyAccount(row.conto, 'positive'), amounts)
+    if (row.ricavi > 0) {
+      const positiveItem = classifyAccount(row.conto, 'positive', row.gestione)
+      if (row.costi > 0 && positiveItem === '5') {
+        addRow(row, 'positive', row.ricavi, classifyAccount(row.conto, 'negative'), amounts)
+      } else {
+        addRow(row, 'positive', row.ricavi, positiveItem, amounts)
+      }
+    }
     if (row.costi > 0) addRow(row, 'negative', row.costi, classifyAccount(row.conto, 'negative'), amounts)
   })
 
@@ -131,7 +138,7 @@ function addRow(
   amounts.set(key, itemRows)
 }
 
-function classifyAccount(conto: string, side: IncomeStatementSide): ItemCode {
+function classifyAccount(conto: string, side: IncomeStatementSide, gestione = ''): ItemCode {
   const name = normalize(conto)
   const isPositive = side === 'positive'
   if (/impost[ae].*(reddito|esercizio)|ires|irpef|irap/.test(name)) return '20'
@@ -144,6 +151,7 @@ function classifyAccount(conto: string, side: IncomeStatementSide): ItemCode {
   if (isPositive && /interess|provent.*finanziar|rendiment/.test(name)) return '16'
   if (!isPositive && /interess|oneri finanziar|commission.*bancar|spese bancar/.test(name)) return '17'
   if (!isPositive && /rivalutaz/.test(name)) return '19'
+  if (isPositive && /finanziar/.test(normalize(gestione))) return '16'
 
   if (isPositive) {
     if (/variaz.*rimanenz|rimanenz/.test(name)) return '2'

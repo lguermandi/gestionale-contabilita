@@ -61,4 +61,28 @@ describe('conto economico civilistico gestionale', () => {
     expect(production?.total).toBe(60)
     expect(statement.sections.find(({ code }) => code === 'B')?.items).toEqual([])
   })
+
+  it('porta gli accrediti sui conti di costo in diminuzione dei costi e le entrate finanziarie in C', () => {
+    const statement = buildIncomeStatement([
+      { conto: 'caffetteria', gestione: 'Tipica', ricavi: 8.4, costi: 267.01, saldo: -258.61 },
+      { conto: 'regali', gestione: 'Tipica', ricavi: 2, costi: 140.48, saldo: -138.48 },
+      { conto: 'tempo libero', gestione: 'Tipica', ricavi: 16.39, costi: 1263.52, saldo: -1247.13 },
+      { conto: 'uscite diverse', gestione: 'Tipica', ricavi: 20, costi: 931.03, saldo: -911.03 },
+      { conto: 'vacanze e viaggi', gestione: 'Tipica', ricavi: 474.71, costi: 390.4, saldo: 84.31 },
+      { conto: 'entrate diverse', gestione: 'Finanziaria', ricavi: 30, costi: 0, saldo: 30 },
+    ])
+    const production = statement.sections.find(({ code }) => code === 'A')
+    const costs = statement.sections.find(({ code }) => code === 'B')
+    const financial = statement.sections.find(({ code }) => code === 'C')
+
+    expect(production?.items).toEqual([])
+    expect(costs?.items.find(({ code }) => code === '14')?.total).toBe(-2470.94)
+    expect(costs?.total).toBe(-2470.94)
+    expect(financial?.items.find(({ code }) => code === '16')?.rows).toMatchObject([
+      { conto: 'entrate diverse', importo: 30, side: 'positive' },
+    ])
+    expect(statement.productionValue).toBe(0)
+    expect(statement.productionCosts).toBe(2470.94)
+    expect(statement.financialResult).toBe(30)
+  })
 })

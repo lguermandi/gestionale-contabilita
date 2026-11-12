@@ -355,7 +355,7 @@ function AppShell() {
       <OfflineSyncController />
       <aside className="border-b border-stone-200 bg-white md:min-h-screen md:w-64 md:border-b-0 md:border-r">
         <div className="flex h-16 items-center gap-3 px-5 md:h-20">
-          <span className="grid size-9 place-items-center bg-emerald-800 text-sm font-bold text-white">GC</span>
+          <img src="/favicon.svg" alt="" aria-hidden="true" className="size-9 shrink-0" />
           <span className="font-semibold">Gestionale contabile</span>
         </div>
         <nav aria-label="Navigazione principale" className="grid grid-cols-2 gap-1 px-3 pb-3 sm:flex sm:flex-wrap md:block md:px-3 md:py-4">

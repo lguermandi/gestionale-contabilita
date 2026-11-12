@@ -28,10 +28,22 @@ resta in memoria e non viene salvato. I dati iniziali sono vuoti.
 `Entities.js` crea una cartella radice `Gestionale Contabilita` sul Drive
 dell'account di esecuzione GAS e un unico spreadsheet `Index_Entita` al suo
 interno. Esegui `initSystem()` dall'editor Apps Script per inizializzare o
-recuperare questi riferimenti. Per aggiungere un'entità esegui
+recuperare questi riferimenti. Il foglio `Entita` contiene
+`ID`, `Nome_Entita`, `Tipologia`, `Folder_ID`,
+`Struttura_Spreadsheet_ID` e `Movimenti_Spreadsheet_ID`. Per aggiungere un'entità esegui
 `createNewEntity({nome, tipo, codiceFiscale, partitaIva, regime})`, dove `tipo`
-è `Privato` o `Azienda`. Ogni entità riceve una sottocartella e uno spreadsheet
-separato; i relativi ID sono registrati nel foglio `Entita` dell'indice.
+è `Privato` o `Azienda`. Ogni entità riceve una sottocartella con uno
+spreadsheet strutturale `Contabilità - [Nome Entità]` e un database movimenti
+separato. Per la prima entità privata viene riutilizzato il Google Sheet
+esistente chiamato `Master contabile`, se presente e non già associato a
+un'entità; altrimenti viene creato un nuovo spreadsheet dei movimenti. I suoi
+tab contabili sono nominati per anno.
+
+Se l'indice usa lo schema precedente, `initSystem()` e le API che lo leggono
+eseguono la migrazione: il vecchio spreadsheet diventa il database movimenti,
+i tab strutturali sono copiati nel nuovo file dedicato e i dati in
+`Movimenti_PD` sono distribuiti nei tab annuali. Le copie strutturali legacy
+vengono rimosse dal database movimenti solo dopo essere state copiate.
 
 Lo spazio contiene le cartelle `Contabilità`, `Fatture emesse`, `Ricevute`,
 `Estratti conto`, `Spese` e `Documenti/Allegati spese`. In `Contabilità` viene
@@ -82,10 +94,12 @@ Il deployment deve includere le azioni JSON `login`, `getEntities`,
 `getTransactions`, `getTransactionHistory`, `appendTransaction`, `getInvoices`
 e `issueInvoice` implementate in `API.js`.
 
-Le API contabili ricevono `spreadsheetId` per instradare letture e scritture
-nello spreadsheet dell’entità attiva; GAS verifica che l’ID sia presente in
-`Index_Entita` prima di aprirlo. Le chiamate legacy senza questo campo
-mantengono il comportamento preesistente.
+Le API contabili ricevono `spreadsheetId` (ID del file movimenti) per instradare
+le registrazioni al tab dell'anno richiesto. Le letture e scritture di anagrafiche,
+fatture, clienti, fornitori, note di credito e spese usano invece il file
+strutturale associato. GAS risolve gli ID tramite `Index_Entita` prima di aprire
+i file. Le chiamate legacy senza questo campo mantengono il comportamento
+preesistente.
 
 `getTransactionHistory` restituisce i movimenti dei fogli annuali esistenti fino
 all'anno richiesto; il prospetto patrimoniale li usa per riportare i saldi di

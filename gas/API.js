@@ -71,19 +71,16 @@ function getTransactions_(token, anno, entity, spreadsheetId) {
   if (!/^\d{4}$/.test(year)) {
     throw new Error('Anno non valido.');
   }
-  const sheetName = spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(year, entity);
-  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+  const sheetName = spreadsheetId ? year : ledgerSheetName_(year, entity);
+  const spreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
   const sheet = spreadsheet && spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
-    if (entity === 'business') return [];
+    if (spreadsheetId || entity === 'business') return [];
     throw new Error('Non esiste un foglio contabile per l\'anno ' + year + '.');
   }
   const lastRow = sheet.getLastRow();
   const rows = lastRow ? sheet.getRange(1, 1, lastRow, 7).getValues() : [];
-  const transactions = parseTransactions_(rows);
-  return spreadsheetId
-    ? transactions.filter(transaction => transaction.data.slice(0, 4) === year)
-    : transactions;
+  return parseTransactions_(rows);
 }
 
 function getTransactionHistory_(token, anno, entity, spreadsheetId) {
@@ -94,7 +91,7 @@ function getTransactionHistory_(token, anno, entity, spreadsheetId) {
   }
   const normalizedEntity = entity || 'private';
   ledgerSheetName_(throughYear, normalizedEntity);
-  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+  const spreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
   if (!spreadsheet) {
     throw new Error('Il progetto Apps Script deve essere collegato al foglio contabile.');
   }
@@ -102,14 +99,15 @@ function getTransactionHistory_(token, anno, entity, spreadsheetId) {
   let years;
   let transactions;
   if (spreadsheetId) {
-    const sheet = spreadsheet.getSheetByName('Movimenti_PD');
-    const lastRow = sheet ? sheet.getLastRow() : 0;
-    const allTransactions = lastRow
-      ? parseTransactions_(sheet.getRange(1, 1, lastRow, 7).getValues())
-      : [];
-    transactions = allTransactions.filter(item => item.data.slice(0, 4) <= throughYear);
-    years = Array.from(new Set(transactions.map(item => Number(item.data.slice(0, 4)))))
-      .sort((left, right) => left - right);
+    const sheets = spreadsheet.getSheets()
+      .map(sheet => ({ sheet: sheet, match: sheet.getName().match(/^(\d{4})$/) }))
+      .filter(item => item.match && Number(item.match[1]) <= Number(throughYear))
+      .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
+    transactions = sheets.flatMap(item => {
+      const lastRow = item.sheet.getLastRow();
+      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
+    });
+    years = sheets.map(item => Number(item.match[1]));
   } else {
     const yearPattern = normalizedEntity === 'business' ? /^AZIENDA_(\d{4})$/ : /^(\d{4})$/;
     const sheets = spreadsheet.getSheets()
@@ -174,12 +172,19 @@ function appendTransaction_(token, transaction, entity, spreadsheetId) {
   }
 
   const year = date.slice(0, 4);
-  const sheetName = spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(year, entity);
-  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+  const sheetName = spreadsheetId ? year : ledgerSheetName_(year, entity);
+  const spreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     let sheet = spreadsheet && spreadsheet.getSheetByName(sheetName);
+    if (!sheet && spreadsheetId && spreadsheet) {
+      sheet = spreadsheet.insertSheet(sheetName);
+      sheet.getRange(1, 1, 1, ENTITY_MOVEMENT_HEADERS_.length)
+        .setValues([ENTITY_MOVEMENT_HEADERS_])
+        .setFontWeight('bold');
+      sheet.setFrozenRows(1);
+    }
     if (!sheet && entity === 'business' && spreadsheet) sheet = spreadsheet.insertSheet(sheetName);
     if (!sheet) throw new Error('Non esiste un foglio contabile per l\'anno ' + year + '.');
     const lastRow = sheet.getLastRow();
@@ -311,6 +316,7 @@ function issueCreditNote_(token, source, spreadsheetId) {
   lock.waitLock(10000);
   try {
     const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+    const movementsSpreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = spreadsheet.getSheetByName('Fatture');
     const invoiceRow = invoiceSheet && findInvoiceRow_(invoiceSheet, fatturaId);
@@ -330,8 +336,8 @@ function issueCreditNote_(token, source, spreadsheetId) {
     if (duplicateIndex >= 0) {
       issued = JSON.parse(rows[duplicateIndex][7]);
       rowIndex = duplicateIndex + 2;
-      const existingLedger = spreadsheet.getSheetByName(
-        spreadsheetId ? 'Movimenti_PD' : ledgerSheetName_(issued.data.slice(0, 4), 'business')
+      const existingLedger = movementsSpreadsheet.getSheetByName(
+        spreadsheetId ? issued.data.slice(0, 4) : ledgerSheetName_(issued.data.slice(0, 4), 'business')
       );
       if (issued.stato === 'emessa' && existingLedger && ledgerHasTransaction_(existingLedger, id)) return issued;
     }
@@ -362,11 +368,12 @@ function issueCreditNote_(token, source, spreadsheetId) {
         id, year, number, fatturaId, data, amountCents / 100, issued.stato, JSON.stringify(issued)
       ]]);
     }
+    const number = issued.numero;
     const creditRows = creditNoteJournalMovements_(invoice, amountCents).map(movement => [
-      data, id, movement.conto, ('Nota di credito ' + number + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200),
+      issued.data, id, movement.conto, ('Nota di credito ' + number + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200),
       movement.gestione, movement.dare, movement.avere
     ]);
-    const ledger = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
+    const ledger = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
     if (!ledgerHasTransaction_(ledger, id)) {
       ledger.getRange(ledger.getLastRow() + 1, 1, creditRows.length, 7).setValues(creditRows);
     }
@@ -488,6 +495,7 @@ function issueExpense_(token, source, spreadsheetId) {
   lock.waitLock(10000);
   try {
     const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+    const movementsSpreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const sheet = getOrCreateSheet_(spreadsheet, 'Spese', [
       'ID', 'Anno', 'Data', 'Fornitore', 'Totale', 'Documento', 'Stato', 'Dettaglio JSON'
@@ -536,7 +544,7 @@ function issueExpense_(token, source, spreadsheetId) {
         issued.numeroDocumento, 'in elaborazione', JSON.stringify(issued)
       ]]);
     }
-    const ledger = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
+    const ledger = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
     const accounts = issued.conti || expense.conti || {};
     const vatAccount = sanitizeString_(accounts.ivaCredito) || 'IVA a credito';
     const supplierAccount = sanitizeString_(accounts.fornitori) || 'Debiti v/fornitori';
@@ -708,8 +716,20 @@ function initializeWorkspaceSpreadsheet_(spreadsheet) {
 function getSpreadsheetForSession_(token, spreadsheetId) {
   const session = requireSession_(token);
   if (spreadsheetId) {
-    getEntityRecordBySpreadsheetId_(spreadsheetId);
-    return SpreadsheetApp.openById(String(spreadsheetId));
+    const entity = getEntityRecordBySpreadsheetId_(spreadsheetId);
+    return SpreadsheetApp.openById(entity.structureSpreadsheetId);
+  }
+  if (!session.user.workspaceReady || !session.user.spreadsheetId) {
+    throw new Error('BUSINESS_SETUP_REQUIRED');
+  }
+  return SpreadsheetApp.openById(session.user.spreadsheetId);
+}
+
+function getMovementSpreadsheetForSession_(token, spreadsheetId) {
+  const session = requireSession_(token);
+  if (spreadsheetId) {
+    const entity = getEntityRecordBySpreadsheetId_(spreadsheetId);
+    return SpreadsheetApp.openById(entity.movementsSpreadsheetId);
   }
   if (!session.user.workspaceReady || !session.user.spreadsheetId) {
     throw new Error('BUSINESS_SETUP_REQUIRED');
@@ -719,10 +739,21 @@ function getSpreadsheetForSession_(token, spreadsheetId) {
 
 function getEntityLedgerSheet_(spreadsheet, year, spreadsheetId) {
   return spreadsheetId
-    ? getOrCreateSheet_(spreadsheet, 'Movimenti_PD', [
-      'Data', 'ID', 'Conto', 'Descrizione', 'Gestione', 'Dare', 'Avere'
-    ])
+    ? getOrCreateEntityYearSheet_(spreadsheet, year)
     : getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
+}
+
+function getOrCreateEntityYearSheet_(spreadsheet, year) {
+  const sheetName = String(year);
+  let sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(sheetName);
+    sheet.getRange(1, 1, 1, ENTITY_MOVEMENT_HEADERS_.length)
+      .setValues([ENTITY_MOVEMENT_HEADERS_])
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
 }
 
 function issueInvoice_(token, source, spreadsheetId) {
@@ -733,11 +764,12 @@ function issueInvoice_(token, source, spreadsheetId) {
   lock.waitLock(10000);
   try {
     const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+    const movementsSpreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
     if (!spreadsheet) throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
     const invoiceSheet = getOrCreateSheet_(spreadsheet, 'Fatture', [
       'ID', 'Anno', 'Numero', 'Data', 'Cliente', 'Totale', 'Stato', 'Dettaglio JSON'
     ]);
-    const ledgerSheet = getEntityLedgerSheet_(spreadsheet, year, spreadsheetId);
+    const ledgerSheet = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
     const existingRow = findInvoiceRow_(invoiceSheet, invoice.id);
     let issued;
     let rowIndex = existingRow;

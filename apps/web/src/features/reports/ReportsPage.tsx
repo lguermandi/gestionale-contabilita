@@ -1,10 +1,11 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { buildAccountingReportsForYear } from '../../domain/accounting'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { buildBalanceSheetSections, type BalanceAccountRow, type BalanceSection, type BalanceRow } from './balanceSheet'
 import { buildCashFlowStatement, type CashFlowSection, type CashFlowStatement } from './cashFlow'
 import { buildIncomeStatement, type IncomeStatement, type IncomeStatementSection } from './incomeStatement'
+import { ReportExportActions, type ReportExportData } from './ReportExport'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const balanceNumber = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -24,6 +25,8 @@ export function ReportsPage() {
   const incomeStatement = useMemo(() => buildIncomeStatement(reports.contoEconomico.righe), [reports.contoEconomico.righe])
   const [view, setView] = useState<'sp' | 'ce' | 'liquidita'>('sp')
   const [incomeView, setIncomeView] = useState<'scalar' | 'opposed'>('scalar')
+  const [balanceView, setBalanceView] = useState<'scalar' | 'opposed'>('opposed')
+  const reportRef = useRef<HTMLDivElement>(null)
   const previousStatus = historyLoading ? 'loading' : historyError ? 'error' : 'ready'
   const previousError = historyError ?? ''
   const { statoPatrimoniale } = reports
@@ -43,6 +46,16 @@ export function ReportsPage() {
   const totalActivity = sumRows(activitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'corrente')
   const totalLiability = sumRows(liabilitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'corrente')
   const hasBalanceRows = statoPatrimoniale.attivita.length > 0 || statoPatrimoniale.passivita.length > 0
+  const exportData = createReportExportData(view, year, {
+    activitySections,
+    liabilitySections,
+    totalActivity,
+    totalLiability,
+    previousStatus,
+    previousYear: year - 1,
+    incomeStatement,
+    cashFlow,
+  })
 
   return (
     <section className="mx-auto w-full max-w-6xl px-5 py-8 md:px-8">
@@ -59,8 +72,12 @@ export function ReportsPage() {
         <button role="tab" aria-selected={view === 'liquidita'} className={`border-b-2 px-4 py-3 text-sm font-medium ${view === 'liquidita' ? 'border-emerald-800 text-emerald-900' : 'border-transparent text-stone-500'}`} onClick={() => setView('liquidita')}>Liquidità</button>
       </div>
       {loading && <p className="mb-4 text-sm text-stone-500">Aggiornamento dati…</p>}
+      <div className="mb-4 flex justify-end">
+        <ReportExportActions data={exportData} reportRef={reportRef} />
+      </div>
 
       {view === 'sp' ? (
+        <div ref={reportRef}>
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-stone-200 bg-white px-5 py-5">
             <div>
@@ -68,33 +85,51 @@ export function ReportsPage() {
               <h2 className="mt-1 text-xl font-semibold text-stone-900">Stato Patrimoniale</h2>
               <p className="mt-1 text-sm text-stone-500">Impieghi e fonti a confronto con l’esercizio precedente</p>
             </div>
-            <div className="flex items-center gap-2 text-xs text-stone-500">
-              <span className="h-2 w-2 rounded-full bg-emerald-600" />
-              Importi in euro
+            <div className="flex flex-col items-end gap-3">
+              <div className="inline-flex border border-stone-300 p-1" role="group" aria-label="Forma dello stato patrimoniale">
+                <button type="button" aria-pressed={balanceView === 'scalar'} className={`min-h-9 px-3 text-sm font-medium ${balanceView === 'scalar' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`} onClick={() => setBalanceView('scalar')}>Scalare</button>
+                <button type="button" aria-pressed={balanceView === 'opposed'} className={`min-h-9 px-3 text-sm font-medium ${balanceView === 'opposed' ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`} onClick={() => setBalanceView('opposed')}>Sezioni contrapposte</button>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-stone-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                Importi in euro
+              </div>
             </div>
           </div>
-          <div className="grid lg:grid-cols-2">
-            <BalanceSide
-              title="Investimenti"
-              sections={activitySections}
-              total={totalActivity}
-              previousTotal={previousStatus === 'ready' ? sumRows(activitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente') : null}
+          {balanceView === 'scalar' ? (
+            <ScalarBalanceSheet
+              activitySections={activitySections}
+              liabilitySections={liabilitySections}
+              totalActivity={totalActivity}
+              totalLiability={totalLiability}
+              previousReady={previousStatus === 'ready'}
               year={year}
               previousYear={year - 1}
-              previousReady={previousStatus === 'ready'}
-              side="activity"
             />
-            <BalanceSide
-              title="Fonti di finanziamento"
-              sections={liabilitySections}
-              total={totalLiability}
-              previousTotal={previousStatus === 'ready' ? sumRows(liabilitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente') : null}
-              year={year}
-              previousYear={year - 1}
-              previousReady={previousStatus === 'ready'}
-              side="liability"
-            />
-          </div>
+          ) : (
+            <div className="grid items-stretch lg:grid-cols-2">
+              <BalanceSide
+                title="Investimenti"
+                sections={activitySections}
+                total={totalActivity}
+                previousTotal={previousStatus === 'ready' ? sumRows(activitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente') : null}
+                year={year}
+                previousYear={year - 1}
+                previousReady={previousStatus === 'ready'}
+                side="activity"
+              />
+              <BalanceSide
+                title="Fonti di finanziamento"
+                sections={liabilitySections}
+                total={totalLiability}
+                previousTotal={previousStatus === 'ready' ? sumRows(liabilitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente') : null}
+                year={year}
+                previousYear={year - 1}
+                previousReady={previousStatus === 'ready'}
+                side="liability"
+              />
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4">
             <p className={`flex items-center gap-2 text-sm font-semibold ${!hasBalanceRows ? 'text-stone-500' : Math.abs(totalActivity - totalLiability) < 0.01 ? 'text-emerald-800' : 'text-rose-700'}`}>
             <span aria-hidden="true" className={`h-2 w-2 rounded-full ${!hasBalanceRows ? 'bg-stone-400' : Math.abs(totalActivity - totalLiability) < 0.01 ? 'bg-emerald-600' : 'bg-rose-600'}`} />
@@ -111,14 +146,18 @@ export function ReportsPage() {
             </p>
           )}
         </div>
+        </div>
       ) : view === 'ce' ? (
+        <div ref={reportRef}>
         <IncomeStatementView
           statement={incomeStatement}
           year={year}
           layout={incomeView}
           onLayoutChange={setIncomeView}
         />
+        </div>
       ) : (
+        <div ref={reportRef}>
         <CashFlowView
           statement={cashFlow}
           year={year}
@@ -126,6 +165,7 @@ export function ReportsPage() {
           previousStatus={previousStatus}
           previousError={previousError}
         />
+        </div>
       )}
     </section>
   )
@@ -290,7 +330,7 @@ function ScalarIncomeStatement({ statement }: { statement: IncomeStatement }) {
                 </tr>
                 {item.rows.map((row) => (
                   <tr key={`${row.conto}:${row.side}`} className="border-b border-dotted border-stone-200 hover:bg-stone-50">
-                    <td className="px-5 py-2 text-stone-700">{row.conto}<span className="ml-2 text-xs text-stone-400">{row.gestione}</span></td>
+                    <td className="px-5 py-2 text-stone-700">{row.conto}</td>
                     <td className="whitespace-nowrap px-5 py-2 text-right tabular-nums text-stone-700">{euro.format(row.side === 'positive' ? row.importo : -row.importo)}</td>
                   </tr>
                 ))}
@@ -342,7 +382,7 @@ function IncomeStatementSide({ title, sections, side }: { title: string; section
               <p className="px-4 pb-1 pt-2 text-xs font-medium text-stone-500">{item.code && `${item.code}. `}{item.title}</p>
               {item.rows.map((row) => (
                 <div key={`${row.conto}:${row.side}`} className="flex items-start justify-between gap-3 px-4 py-1.5 text-sm">
-                  <span className="text-stone-700">{row.conto}<span className="ml-2 text-xs text-stone-400">{row.gestione}</span></span>
+                  <span className="text-stone-700">{row.conto}</span>
                   <span className="whitespace-nowrap text-right tabular-nums text-stone-700">{euro.format(row.importo)}</span>
                 </div>
               ))}
@@ -383,6 +423,191 @@ function SummaryRows({ statement }: { statement: IncomeStatement }) {
   )
 }
 
+function ScalarBalanceSheet({
+  activitySections,
+  liabilitySections,
+  totalActivity,
+  totalLiability,
+  previousReady,
+  year,
+  previousYear,
+}: {
+  activitySections: BalanceSection[]
+  liabilitySections: BalanceSection[]
+  totalActivity: number
+  totalLiability: number
+  previousReady: boolean
+  year: number
+  previousYear: number
+}) {
+  const previousActivity = sumRows(activitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente')
+  const previousLiability = sumRows(liabilitySections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows)), 'precedente')
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-left text-sm">
+        <colgroup><col className="w-[50%]" /><col className="w-[25%]" /><col className="w-[25%]" /></colgroup>
+        <thead className="border-b border-stone-200 bg-stone-100 text-[11px] uppercase tracking-wide text-stone-600">
+          <tr>
+            <th className="px-5 py-3 font-semibold">Voce</th>
+            <th className="px-2 py-3 text-right font-semibold">{year}</th>
+            <th className="px-3 py-3 text-right font-semibold">{previousYear}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <BalanceSectionsRows title="Attività · Impieghi" sections={activitySections} side="activity" previousReady={previousReady} />
+          <tr className="border-t border-stone-200 bg-amber-50 font-semibold text-stone-800">
+            <td className="px-5 py-2.5">Totale attività</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{balanceAmount(totalActivity)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{previousReady ? balanceAmount(previousActivity) : '—'}</td>
+          </tr>
+          <BalanceSectionsRows title="Passività · Fonti di finanziamento" sections={liabilitySections} side="liability" previousReady={previousReady} />
+          <tr className="border-t border-stone-200 bg-sky-50 font-semibold text-stone-800">
+            <td className="px-5 py-2.5">Totale passività</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{balanceAmount(totalLiability)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{previousReady ? balanceAmount(previousLiability) : '—'}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function BalanceSectionsRows({
+  title,
+  sections,
+  side,
+  previousReady,
+}: {
+  title: string
+  sections: BalanceSection[]
+  side: 'activity' | 'liability'
+  previousReady: boolean
+}) {
+  const headingColor = side === 'activity' ? 'bg-amber-100' : 'bg-sky-100'
+  return (
+    <>
+      <tr className={headingColor}>
+        <th colSpan={3} className="px-5 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-800">{title}</th>
+      </tr>
+      {sections.map((section) => (
+        <Fragment key={section.code}>
+          <tr className={`border-y border-stone-300 ${headingColor}`}>
+            <th colSpan={3} className="px-5 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-700">{section.code} {section.title}</th>
+          </tr>
+          {section.subsections.map((subsection) => (
+            <Fragment key={subsection.code}>
+              {(subsection.code || subsection.title) && (
+                <tr className="border-b border-stone-200 bg-stone-50">
+                  <th colSpan={3} className="px-5 py-2 text-left text-xs font-semibold text-stone-700">
+                    {subsection.code && <span className="mr-2 text-stone-500">{subsection.code}</span>}{subsection.title}
+                  </th>
+                </tr>
+              )}
+              {subsection.rows.map((row) => (
+                <tr key={row.conto} className="border-b border-dotted border-stone-300">
+                  <td className="break-words px-5 py-2 text-stone-700">{row.conto}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-stone-800">{balanceAmount(row.corrente)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-stone-500">{previousReady ? balanceAmount(row.precedente) : '—'}</td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+          {section.subsections.some((subsection) => subsection.rows.length > 0) && (
+            <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+              <td className="px-5 py-2">Totale {section.title.toLowerCase()}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'corrente'))}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'precedente')) : '—'}</td>
+            </tr>
+          )}
+        </Fragment>
+      ))}
+    </>
+  )
+}
+
+function createReportExportData(
+  view: 'sp' | 'ce' | 'liquidita',
+  year: number,
+  data: {
+    activitySections: BalanceSection[]
+    liabilitySections: BalanceSection[]
+    totalActivity: number
+    totalLiability: number
+    previousStatus: 'loading' | 'error' | 'ready'
+    previousYear: number
+    incomeStatement: IncomeStatement
+    cashFlow: CashFlowStatement
+  },
+): ReportExportData {
+  if (view === 'sp') {
+    const previousReady = data.previousStatus === 'ready'
+    const headers = ['Voce', String(year), String(data.previousYear)]
+    const rows: string[][] = []
+    const addSide = (title: string, sections: BalanceSection[], side: 'activity' | 'liability') => {
+      rows.push([title, '', ''])
+      sections.forEach((section) => {
+        rows.push([`${section.code} ${section.title}`, '', ''])
+        section.subsections.forEach((subsection) => {
+          if (subsection.code || subsection.title) rows.push([`${subsection.code} ${subsection.title}`.trim(), '', ''])
+          subsection.rows.forEach((row) => rows.push([row.conto, balanceAmount(row.corrente), previousReady ? balanceAmount(row.precedente) : '—']))
+        })
+        if (section.subsections.some((subsection) => subsection.rows.length > 0)) {
+          const sectionRows = section.subsections.flatMap((subsection) => subsection.rows)
+          rows.push([`Totale ${section.title.toLowerCase()}`, balanceAmount(sumRows(sectionRows, 'corrente')), previousReady ? balanceAmount(sumRows(sectionRows, 'precedente')) : '—'])
+        }
+      })
+      const total = side === 'activity' ? data.totalActivity : data.totalLiability
+      const previous = sections.flatMap((section) => section.subsections.flatMap((subsection) => subsection.rows))
+      rows.push([`Totale ${title.toLowerCase()}`, balanceAmount(total), previousReady ? balanceAmount(sumRows(previous, 'precedente')) : '—'])
+    }
+    addSide('Attività', data.activitySections, 'activity')
+    addSide('Passività', data.liabilitySections, 'liability')
+    return { title: `Stato patrimoniale ${year}`, headers, rows }
+  }
+  if (view === 'ce') {
+    const statement = data.incomeStatement
+    const rows: string[][] = []
+    statement.sections.filter((section) => section.items.length > 0).forEach((section) => {
+      rows.push([`${section.code}) ${section.title}`, ''])
+      section.items.forEach((item) => {
+        rows.push([`${item.code ? `${item.code}. ` : ''}${item.title}`, ''])
+        item.rows.forEach((row) => rows.push([row.conto, euro.format(row.side === 'positive' ? row.importo : -row.importo)]))
+        rows.push([`Totale ${item.title.toLowerCase()}`, euro.format(item.total)])
+      })
+      rows.push([`Totale ${section.code}`, euro.format(section.total)])
+    })
+    rows.push(
+      ['A) Valore della produzione', euro.format(statement.productionValue)],
+      ['B) Costi della produzione', euro.format(-statement.productionCosts)],
+      ['Differenza tra valore e costi della produzione (A - B)', euro.format(statement.operatingResult)],
+      ['C) Proventi e oneri finanziari', euro.format(statement.financialResult)],
+      ['D) Rettifiche di valore di attività e passività finanziarie', euro.format(statement.adjustmentsResult)],
+      ['Risultato prima delle imposte', euro.format(statement.preTaxResult)],
+      ['20) Imposte sul reddito dell’esercizio', euro.format(statement.incomeTaxes)],
+      ['Utile (perdita) dell’esercizio', euro.format(statement.netResult)],
+    )
+    return { title: `Conto economico ${year}`, headers: ['Voce', 'Esercizio'], rows }
+  }
+  const statement = data.cashFlow
+  const rows = [
+    ['A) Disponibilità monetaria iniziale', euro.format(statement.openingCash)],
+    ...cashFlowSectionExportRows(statement.operating),
+    ...cashFlowSectionExportRows(statement.investing),
+    ...cashFlowSectionExportRows(statement.financing),
+    ...(statement.unclassified !== 0 ? [['Flussi non classificati / raccordo liquidità', euro.format(statement.unclassified)]] : []),
+    ['E) Flusso monetario netto del periodo', euro.format(statement.netChange)],
+    ['F) Disponibilità monetaria finale', euro.format(statement.closingCash)],
+  ]
+  return { title: `Rendiconto finanziario ${year}`, headers: ['Voce', 'Esercizio'], rows }
+}
+
+function cashFlowSectionExportRows(section: CashFlowSection) {
+  return [
+    [`${section.code}) ${section.title}`, euro.format(section.total)],
+    ...section.rows.map((row) => [row.label, euro.format(row.amount)]),
+  ]
+}
+
 function BalanceSide({
   title,
   sections,
@@ -404,14 +629,14 @@ function BalanceSide({
 }) {
   const headingColor = side === 'activity' ? 'bg-amber-100' : 'bg-sky-100'
   return (
-    <section className={`${side === 'liability' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
+    <section className={`flex flex-col ${side === 'liability' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
       <header className={`border-b border-stone-300 px-4 py-3 sm:px-5 ${headingColor}`}>
         <div>
           <h3 className="text-center text-xs font-bold uppercase tracking-wider text-stone-900">{title}</h3>
         </div>
       </header>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[500px] table-fixed text-sm">
+      <div className="flex-1 overflow-x-auto">
+        <table className="h-full w-full min-w-[500px] table-fixed text-sm">
           <colgroup><col className="w-[50%]" /><col className="w-[25%]" /><col className="w-[25%]" /></colgroup>
           <thead className="border-b border-stone-200 bg-white text-[11px] uppercase tracking-wide text-stone-500">
             <tr>

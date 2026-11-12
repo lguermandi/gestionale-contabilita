@@ -4,7 +4,6 @@ export type IncomeStatementSide = 'positive' | 'negative'
 
 export interface IncomeStatementRow {
   conto: string
-  gestione: string
   importo: number
   side: IncomeStatementSide
 }
@@ -128,7 +127,7 @@ function addRow(
   if (!item) throw new Error(`Voce del conto economico non riconosciuta: ${itemCode}`)
   const key = `${item.section}:${item.code}`
   const itemRows = amounts.get(key) ?? []
-  itemRows.push({ conto: row.conto, gestione: row.gestione, importo, side })
+  itemRows.push({ conto: row.conto, importo, side })
   amounts.set(key, itemRows)
 }
 

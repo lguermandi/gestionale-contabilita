@@ -21,6 +21,7 @@ describe('conto economico civilistico gestionale', () => {
       incomeTaxes: -30,
       netResult: 700,
     })
+    expect(statement.sections.find(({ code }) => code === 'A')?.items[0].rows[0]).not.toHaveProperty('gestione')
     expect(statement.sections.find(({ code }) => code === 'A')?.items.map(({ code }) => code)).toEqual(['1', '5'])
     expect(statement.negativeSections.find(({ code }) => code === 'B')?.items.map(({ code }) => code)).toEqual(['6', '7'])
   })

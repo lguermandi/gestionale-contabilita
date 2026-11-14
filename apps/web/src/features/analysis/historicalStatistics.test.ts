@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LedgerTransaction } from '../../domain/accounting'
-import { buildHistoricalStatistics } from './historicalStatistics'
+import { buildDailyPositionStatistics, buildHistoricalStatistics } from './historicalStatistics'
 
 const transactions: LedgerTransaction[] = [
   {
@@ -72,5 +72,36 @@ describe('statistiche storiche', () => {
       netWorth: 0,
       liquidity: 0,
     }])
+  })
+
+  it('calcola i saldi patrimoniali e di liquidità ogni giorno riportando i saldi nei giorni senza movimenti', () => {
+    const daily = buildDailyPositionStatistics(transactions, 2025)
+    const byDate = new Map(daily.map((entry) => [entry.date, entry]))
+
+    expect(byDate.get('2024-01-01')).toMatchObject({
+      assets: 10000,
+      debts: 0,
+      netWorth: 10000,
+      liquidity: 10000,
+    })
+    expect(byDate.get('2024-01-02')).toMatchObject({
+      assets: 10000,
+      debts: 0,
+      netWorth: 10000,
+      liquidity: 10000,
+    })
+    expect(byDate.get('2025-01-01')).toMatchObject({
+      assets: 13000,
+      debts: 3000,
+      netWorth: 10000,
+      liquidity: 13000,
+    })
+    expect(byDate.get('2025-02-01')).toMatchObject({
+      assets: 11000,
+      debts: 3000,
+      netWorth: 8000,
+      liquidity: 11000,
+    })
+    expect(daily.at(-1)?.date).toBe('2025-12-31')
   })
 })

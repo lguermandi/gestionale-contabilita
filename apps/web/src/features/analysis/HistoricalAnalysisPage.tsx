@@ -14,10 +14,16 @@ import {
 } from 'recharts'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
-import { buildHistoricalStatistics } from './historicalStatistics'
+import { buildDailyPositionStatistics, buildHistoricalStatistics } from './historicalStatistics'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
 const euroPrecise = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
+const dayLabel = new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })
+const monthLabel = new Intl.DateTimeFormat('it-IT', { month: 'short', year: '2-digit' })
+
+function formatDayLabel(date: string, formatter: Intl.DateTimeFormat) {
+  return formatter.format(new Date(`${date}T00:00:00`))
+}
 
 function Metric({ label, value, note }: { label: string; value: string; note: string }) {
   return (
@@ -52,6 +58,10 @@ export function HistoricalAnalysisPage() {
   const token = useGasSessionStore((state) => state.token)
   const statistics = useMemo(
     () => buildHistoricalStatistics([...historyTransactions, ...transactions], year),
+    [historyTransactions, transactions, year],
+  )
+  const dailyStatistics = useMemo(
+    () => buildDailyPositionStatistics([...historyTransactions, ...transactions], year),
     [historyTransactions, transactions, year],
   )
   const latest = statistics.at(-1)
@@ -114,38 +124,38 @@ export function HistoricalAnalysisPage() {
               </div>
             </ChartPanel>
 
-            <ChartPanel title="Evoluzione del patrimonio" description="Attività, debiti e patrimonio netto stimato a fine esercizio">
+            <ChartPanel title="Evoluzione giornaliera del patrimonio" description="Saldi di fine giornata, riportati anche nei giorni senza movimenti">
               <div className="h-full w-full" role="img" aria-label="Grafico storico dell’evoluzione patrimoniale">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
+                  <LineChart data={dailyStatistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />
-                    <XAxis dataKey="year" tickLine={false} axisLine={false} />
+                    <XAxis dataKey="date" tickFormatter={(date: string) => formatDayLabel(date, monthLabel)} interval="preserveStartEnd" minTickGap={36} tickLine={false} axisLine={false} />
                     <YAxis tickFormatter={(value: number) => euro.format(value)} tickLine={false} axisLine={false} width={90} />
-                    <Tooltip formatter={(value) => euroPrecise.format(Number(value))} />
+                    <Tooltip labelFormatter={(date) => formatDayLabel(String(date), dayLabel)} formatter={(value) => euroPrecise.format(Number(value))} />
                     <Legend verticalAlign="top" height={36} />
-                    <Line type="monotone" dataKey="assets" name="Attività" stroke="#059669" strokeWidth={2.5} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="debts" name="Debiti" stroke="#e87962" strokeWidth={2.5} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="netWorth" name="Patrimonio netto stimato" stroke="#5965e8" strokeWidth={2.5} dot={{ r: 3 }} />
+                    <Line type="stepAfter" dataKey="assets" name="Attività" stroke="#059669" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="stepAfter" dataKey="debts" name="Debiti" stroke="#e87962" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="stepAfter" dataKey="netWorth" name="Patrimonio netto stimato" stroke="#5965e8" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </ChartPanel>
 
-            <ChartPanel title="Liquidità storica" description="Saldo progressivo dei conti di cassa e banca a fine esercizio">
+            <ChartPanel title="Liquidità giorno per giorno" description="Saldo di cassa e banca a fine giornata, con riporto nei giorni senza movimenti">
               <div className="h-full w-full" role="img" aria-label="Grafico storico della liquidità">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
+                  <LineChart data={dailyStatistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />
-                    <XAxis dataKey="year" tickLine={false} axisLine={false} />
+                    <XAxis dataKey="date" tickFormatter={(date: string) => formatDayLabel(date, monthLabel)} interval="preserveStartEnd" minTickGap={36} tickLine={false} axisLine={false} />
                     <YAxis tickFormatter={(value: number) => euro.format(value)} tickLine={false} axisLine={false} width={90} />
-                    <Tooltip formatter={(value) => euroPrecise.format(Number(value))} />
-                    <Line type="monotone" dataKey="liquidity" name="Liquidità" stroke="#f97316" strokeWidth={2.5} dot={{ r: 3 }} />
+                    <Tooltip labelFormatter={(date) => formatDayLabel(String(date), dayLabel)} formatter={(value) => euroPrecise.format(Number(value))} />
+                    <Line type="stepAfter" dataKey="liquidity" name="Liquidità" stroke="#f97316" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </ChartPanel>
           </div>
-          <p className="mt-4 text-xs leading-5 text-stone-500">Il patrimonio netto è una stima calcolata sottraendo i debiti riconosciuti dai nomi dei conti alle attività. La classificazione dipende dalle registrazioni contabili.</p>
+          <p className="mt-4 text-xs leading-5 text-stone-500">I grafici patrimoniali mostrano i saldi a fine giornata, riportati anche quando non ci sono movimenti. Il patrimonio netto è una stima: sottrae i debiti riconosciuti dai nomi dei conti alle attività.</p>
         </>
       )}
       {!latest && (

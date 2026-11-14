@@ -82,7 +82,7 @@ export function HistoricalAnalysisPage() {
 
           <div className="mt-6 grid gap-6 xl:grid-cols-2">
             <ChartPanel title="Entrate e uscite" description="Confronto degli importi registrati in ogni esercizio">
-              <div role="img" aria-label="Grafico storico delle entrate e delle uscite">
+              <div className="h-full w-full" role="img" aria-label="Grafico storico delle entrate e delle uscite">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />
@@ -98,7 +98,7 @@ export function HistoricalAnalysisPage() {
             </ChartPanel>
 
             <ChartPanel title="Risparmio per esercizio" description="Differenza tra entrate e uscite e relativo tasso di risparmio">
-              <div role="img" aria-label="Grafico storico del risparmio netto e del tasso di risparmio">
+              <div className="h-full w-full" role="img" aria-label="Grafico storico del risparmio netto e del tasso di risparmio">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />
@@ -115,7 +115,7 @@ export function HistoricalAnalysisPage() {
             </ChartPanel>
 
             <ChartPanel title="Evoluzione del patrimonio" description="Attività, debiti e patrimonio netto stimato a fine esercizio">
-              <div role="img" aria-label="Grafico storico dell’evoluzione patrimoniale">
+              <div className="h-full w-full" role="img" aria-label="Grafico storico dell’evoluzione patrimoniale">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />
@@ -132,7 +132,7 @@ export function HistoricalAnalysisPage() {
             </ChartPanel>
 
             <ChartPanel title="Liquidità storica" description="Saldo progressivo dei conti di cassa e banca a fine esercizio">
-              <div role="img" aria-label="Grafico storico della liquidità">
+              <div className="h-full w-full" role="img" aria-label="Grafico storico della liquidità">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={statistics} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="#e7e5e4" vertical={false} />

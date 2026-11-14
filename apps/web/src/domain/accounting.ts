@@ -63,6 +63,14 @@ const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 const CASH_ACCOUNT = /(cassa|banca|liquidit|conto corrente|cash)/i
 const EQUITY_ACCOUNT = /capitale|cap\.\s*sociale|patrimonio netto|riserv|utile|perdita|risultato d['’]esercizio|titolare/i
 
+export function isCashAccount(accountName: string) {
+  return CASH_ACCOUNT.test(accountName)
+}
+
+export function isEquityAccount(accountName: string) {
+  return EQUITY_ACCOUNT.test(accountName)
+}
+
 export function buildAccountingReportsForYear(transactions: LedgerTransaction[], year: number): AccountingReports {
   const transactionsByYear = new Map<number, LedgerTransaction[]>()
   transactions.forEach((transaction) => {
@@ -179,7 +187,7 @@ export function buildAccountingReports(transactions: LedgerTransaction[], openin
       account.avere += credit
       accounts.set(accountName, account)
 
-      if (movement.gestione.trim() && !EQUITY_ACCOUNT.test(accountName)) {
+      if (movement.gestione.trim() && !isEquityAccount(accountName)) {
         const management = movement.gestione.trim()
         managementByAccount.set(accountName, management)
         managements.add(management)
@@ -190,7 +198,7 @@ export function buildAccountingReports(transactions: LedgerTransaction[], openin
         incomeByAccount.set(accountName, income)
       }
 
-      if (CASH_ACCOUNT.test(accountName)) {
+      if (isCashAccount(accountName)) {
         dailyCashChanges.set(
           transaction.data,
           (dailyCashChanges.get(transaction.data) ?? 0) + debit - credit,
@@ -222,9 +230,9 @@ export function buildAccountingReports(transactions: LedgerTransaction[], openin
   const utileCents = ricaviCents - costiCents
 
   const patrimoniali = saldi.filter((account) => !managementByAccount.has(account.conto) && account.saldo !== 0)
-  const attivita = patrimoniali.filter((account) => !EQUITY_ACCOUNT.test(account.conto) && account.saldo > 0)
+  const attivita = patrimoniali.filter((account) => !isEquityAccount(account.conto) && account.saldo > 0)
   const passivita = patrimoniali
-    .filter((account) => EQUITY_ACCOUNT.test(account.conto) || account.saldo < 0)
+    .filter((account) => isEquityAccount(account.conto) || account.saldo < 0)
     .map((account) => ({ conto: account.conto, saldo: -account.saldo }))
   if (utileCents !== 0) {
     const resultAccount = passivita.find((account) => /risultato d['’]esercizio/i.test(account.conto))

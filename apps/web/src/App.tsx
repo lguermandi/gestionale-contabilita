@@ -29,6 +29,7 @@ const navigation = [
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const TransactionForm = lazy(() => import('./features/ledger/TransactionForm').then((module) => ({ default: module.TransactionForm })))
 const ReportsPage = lazy(() => import('./features/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })))
+const HistoricalAnalysisPage = lazy(() => import('./features/analysis/HistoricalAnalysisPage').then((module) => ({ default: module.HistoricalAnalysisPage })))
 const InvoicesPage = lazy(() => import('./features/invoicing/InvoicesPage').then((module) => ({ default: module.InvoicesPage })))
 const ExpensesPage = lazy(() => import('./features/expenses/ExpensesPage').then((module) => ({ default: module.ExpensesPage })))
 const CompanySettingsPage = lazy(() => import('./features/settings/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
@@ -38,6 +39,13 @@ function BusinessOnly({ children }: { children: ReactNode }) {
     (entity) => entity.spreadsheetId === state.activeSpreadsheetId,
   ))
   return activeEntity?.tipologia === 'Azienda' ? <>{children}</> : <Navigate to="/" replace />
+}
+
+function PrivateOnly({ children }: { children: ReactNode }) {
+  const activeEntity = useEntityStore((state) => state.entities.find(
+    (entity) => entity.spreadsheetId === state.activeSpreadsheetId,
+  ))
+  return activeEntity?.tipologia !== 'Azienda' ? <>{children}</> : <Navigate to="/" replace />
 }
 
 function GasSessionControl() {
@@ -358,7 +366,7 @@ function AppShell() {
   const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() + 1 - index)
   const visibleNavigation = activeProfile === 'business'
     ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, { label: 'Spese', to: '/spese' }, navigation[3]]
-    : navigation
+    : [...navigation.slice(0, 3), { label: 'Analisi storiche', to: '/analisi' }, navigation[3]]
 
   useEffect(() => {
     if (token) void loadEntities(token)
@@ -434,6 +442,7 @@ function AppShell() {
               ? <TransactionForm key={`${activeSpreadsheetId}-${year}`} year={year} entity={activeProfile} spreadsheetId={activeSpreadsheetId} accounts={reports.conti} managements={reports.gestioni} onSaved={() => void refresh(year, token, activeProfile, activeSpreadsheetId)} />
               : <p className="mx-auto max-w-6xl px-5 py-8 text-sm text-stone-600 md:px-8">Accedi a GAS e crea o seleziona un’entità dalle Impostazioni.</p>} />
             <Route path="/bilancio" element={<ReportsPage />} />
+            <Route path="/analisi" element={<PrivateOnly><HistoricalAnalysisPage /></PrivateOnly>} />
             <Route path="/fatturazione" element={<BusinessOnly><InvoicesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/spese" element={<BusinessOnly><ExpensesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/impostazioni" element={<CompanySettingsPage />} />

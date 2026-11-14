@@ -478,18 +478,35 @@ function issueExpense_(token, source, spreadsheetId) {
   const date = new Date(data + 'T00:00:00.000Z');
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Identificativo spesa non valido.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== data) throw new Error('Data spesa non valida.');
-  const imponibileCents = Math.round(Number(expense.imponibile) * 100);
-  const rate = Number(expense.aliquotaIva);
-  if (!isFinite(imponibileCents) || imponibileCents <= 0 || !isFinite(rate) || rate < 0 || rate > 100) throw new Error('Importo o aliquota IVA non validi.');
+  const sourceLines = Array.isArray(expense.righe) && expense.righe.length
+    ? expense.righe
+    : [{ conto: expense.conto, imponibile: expense.imponibile, aliquotaIva: expense.aliquotaIva }];
+  if (sourceLines.length < 1 || sourceLines.length > 100) throw new Error('Numero di voci di costo non valido.');
+  const righe = sourceLines.map(line => {
+    const imponibileCents = Math.round(Number(line.imponibile) * 100);
+    const rate = Number(line.aliquotaIva);
+    const conto = sanitizeString_(line.conto);
+    if (!conto || !isFinite(imponibileCents) || imponibileCents <= 0 || !isFinite(rate) || rate < 0 || rate > 100) {
+      throw new Error('Voce di costo o aliquota IVA non valida.');
+    }
+    return {
+      id: String(line.id || ''),
+      conto: conto,
+      imponibile: imponibileCents / 100,
+      aliquotaIva: rate,
+      imponibileCents: imponibileCents,
+      ivaCents: Math.round(imponibileCents * rate / 100)
+    };
+  });
+  const imponibileCents = righe.reduce((sum, line) => sum + line.imponibileCents, 0);
+  const ivaCents = righe.reduce((sum, line) => sum + line.ivaCents, 0);
+  const totaleCents = imponibileCents + ivaCents;
   const supplier = normalizeCustomer_(expense.fornitore);
   const allowedExpenseTypes = ['fattura', 'ricevuta', 'spesa personale'];
   const tipo = String(expense.tipo || 'fattura');
   if (allowedExpenseTypes.indexOf(tipo) < 0) throw new Error('Tipologia di spesa non valida.');
   const descrizione = sanitizeString_(expense.descrizione);
-  const conto = sanitizeString_(expense.conto);
-  if (!descrizione || !conto) throw new Error('Oggetto della spesa e conto di costo sono obbligatori.');
-  const ivaCents = Math.round(imponibileCents * rate / 100);
-  const totaleCents = imponibileCents + ivaCents;
+  if (!descrizione) throw new Error('Oggetto della spesa obbligatorio.');
   const attachment = expense.allegato || null;
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -527,8 +544,10 @@ function issueExpense_(token, source, spreadsheetId) {
     if (!issued) {
       issued = {
         id: id, tipo: tipo, data: data, numeroDocumento: sanitizeString_(expense.numeroDocumento),
-        fornitore: supplier, descrizione: descrizione, conto: conto,
-        imponibile: imponibileCents / 100, aliquotaIva: rate,
+        fornitore: supplier, descrizione: descrizione, righe: righe.map(line => ({
+          id: line.id, conto: line.conto, imponibile: line.imponibile, aliquotaIva: line.aliquotaIva
+        })),
+        conto: righe[0].conto, imponibile: imponibileCents / 100, aliquotaIva: righe[0].aliquotaIva,
         iva: ivaCents / 100, totale: totaleCents / 100,
         note: sanitizeString_(expense.note), stato: 'da pagare',
         allegatoSalvato: savedAttachment,
@@ -550,7 +569,7 @@ function issueExpense_(token, source, spreadsheetId) {
     const supplierAccount = sanitizeString_(accounts.fornitori) || 'Debiti v/fornitori';
     const management = sanitizeString_(accounts.gestione) || 'Tipica';
     const movements = [
-      { conto: conto, gestione: management, dare: imponibileCents / 100, avere: 0 },
+      ...righe.map(line => ({ conto: line.conto, gestione: management, dare: line.imponibile, avere: 0 })),
       ...(ivaCents > 0 ? [{ conto: vatAccount, gestione: '', dare: ivaCents / 100, avere: 0 }] : []),
       { conto: supplierAccount, gestione: '', dare: 0, avere: totaleCents / 100 }
     ];
@@ -849,10 +868,14 @@ function normalizeInvoice_(source) {
     const quantita = Number(line.quantita);
     const prezzoUnitario = Number(line.prezzoUnitario);
     const descrizione = sanitizeString_(line.descrizione);
+    const aliquotaIva = line.aliquotaIva === undefined || line.aliquotaIva === null
+      ? Number(invoice.aliquotaIva)
+      : Number(line.aliquotaIva);
     if (!descrizione || !isFinite(quantita) || quantita <= 0 || !isFinite(prezzoUnitario) || prezzoUnitario < 0) {
       throw new Error('Voce fattura non valida.');
     }
-    return { id: String(line.id || ''), descrizione, quantita, prezzoUnitario };
+    if (!isFinite(aliquotaIva) || aliquotaIva < 0 || aliquotaIva > 100) throw new Error('Aliquota IVA fattura non valida.');
+    return { id: String(line.id || ''), descrizione, quantita, prezzoUnitario, aliquotaIva };
   });
 
   const rates = {
@@ -914,10 +937,31 @@ function normalizeInvoice_(source) {
 }
 
 function calculateInvoiceTotals_(invoice) {
-  const base = invoice.linee.reduce((sum, line) => sum + Math.round(line.quantita * line.prezzoUnitario * 100), 0);
+  const taxableByRate = new Map();
+  invoice.linee.forEach(line => {
+    const cents = Math.round((line.quantita * line.prezzoUnitario + Number.EPSILON) * 100);
+    taxableByRate.set(line.aliquotaIva, (taxableByRate.get(line.aliquotaIva) || 0) + cents);
+  });
+  const base = Array.from(taxableByRate.values()).reduce((sum, cents) => sum + cents, 0);
   const contribution = Math.round(base * invoice.aliquotaCassa / 100);
   const vatBase = base + contribution;
-  const vat = Math.round(vatBase * invoice.aliquotaIva / 100);
+  const rates = Array.from(taxableByRate.entries()).sort((left, right) => left[0] - right[0]);
+  let allocatedContribution = 0;
+  const ivaPerAliquota = rates.map((entry, index) => {
+    const aliquota = entry[0];
+    const taxable = entry[1];
+    const rateContribution = index === rates.length - 1
+      ? contribution - allocatedContribution
+      : base > 0 ? Math.round(contribution * taxable / base) : 0;
+    allocatedContribution += rateContribution;
+    const rateBase = taxable + rateContribution;
+    return {
+      aliquota: aliquota,
+      baseIva: rateBase / 100,
+      iva: Math.round(rateBase * aliquota / 100) / 100
+    };
+  });
+  const vat = ivaPerAliquota.reduce((sum, item) => sum + Math.round(item.iva * 100), 0);
   const withholding = Math.round(base * invoice.aliquotaRitenuta / 100);
   const stampDuty = invoice.marcaDaBollo && invoice.marcaDaBollo.addebitata
     ? Math.round(Number(invoice.marcaDaBollo.importo) * 100)
@@ -927,6 +971,7 @@ function calculateInvoiceTotals_(invoice) {
     cassa: contribution / 100,
     baseIva: vatBase / 100,
     iva: vat / 100,
+    ivaPerAliquota: ivaPerAliquota,
     ritenuta: withholding / 100,
     bollo: stampDuty / 100,
     totale: (base + contribution + vat - withholding + stampDuty) / 100

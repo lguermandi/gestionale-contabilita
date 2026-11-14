@@ -35,8 +35,8 @@ function currentDate(year: number) {
     : `${year}-01-01`
 }
 
-function newLine(): InvoiceLine {
-  return { id: createId(), descrizione: '', quantita: 1, prezzoUnitario: 0 }
+function newLine(aliquotaIva = 22): InvoiceLine {
+  return { id: createId(), descrizione: '', quantita: 1, prezzoUnitario: 0, aliquotaIva }
 }
 
 function newDraft(year: number, accounts: InvoiceDraft['conti']): InvoiceDraft {
@@ -608,14 +608,15 @@ export function InvoicesPage({ year }: { year: number }) {
               <section className="overflow-hidden border border-stone-200 bg-white">
                 <div className="border-b border-stone-200 px-5 py-4"><h2 className="font-semibold text-stone-950">Prestazioni</h2></div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[570px] text-left text-sm">
-                    <thead className="bg-slate-100 text-xs uppercase text-stone-500"><tr><th className="px-3 py-3">Descrizione</th><th className="w-20 px-3 py-3 text-right">Q.tà</th><th className="w-28 px-3 py-3 text-right">Prezzo</th><th className="w-24 px-3 py-3 text-right">Importo</th><th className="w-10"><span className="sr-only">Azioni</span></th></tr></thead>
+                  <table className="w-full min-w-[680px] text-left text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase text-stone-500"><tr><th className="px-3 py-3">Descrizione</th><th className="w-20 px-3 py-3 text-right">Q.tà</th><th className="w-28 px-3 py-3 text-right">Prezzo</th><th className="w-24 px-3 py-3 text-right">IVA %</th><th className="w-24 px-3 py-3 text-right">Importo</th><th className="w-10"><span className="sr-only">Azioni</span></th></tr></thead>
                     <tbody className="divide-y divide-stone-100">
                       {draft.linee.map((line) => (
                         <tr key={line.id}>
                           <td className="p-2"><input className={inputClass} aria-label="Descrizione prestazione" value={line.descrizione} maxLength={200} onChange={(event) => updateLine(line.id, 'descrizione', event.target.value)} required /></td>
                           <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Quantità" type="number" min="0.01" step="0.01" value={line.quantita} onChange={(event) => updateLine(line.id, 'quantita', event.target.value)} required /></td>
                           <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Prezzo unitario" type="number" min="0" step="0.01" value={line.prezzoUnitario} onChange={(event) => updateLine(line.id, 'prezzoUnitario', event.target.value)} required /></td>
+                          <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Aliquota IVA" type="number" min="0" max="100" step="0.1" value={line.aliquotaIva ?? draft.aliquotaIva} onChange={(event) => updateLine(line.id, 'aliquotaIva', event.target.value)} required /></td>
                           <td className="px-2 text-right tabular-nums">{euro.format(line.quantita * line.prezzoUnitario)}</td>
                           <td className="p-2"><button className="size-10 text-lg text-stone-500 disabled:opacity-30" type="button" title="Rimuovi prestazione" aria-label="Rimuovi prestazione" disabled={draft.linee.length <= 1} onClick={() => setDraft((current) => ({ ...current, linee: current.linee.filter((item) => item.id !== line.id) }))}>×</button></td>
                         </tr>
@@ -623,7 +624,7 @@ export function InvoicesPage({ year }: { year: number }) {
                     </tbody>
                   </table>
                 </div>
-                <div className="border-t border-stone-200 px-5 py-3"><button className="w-full border border-stone-300 py-2 text-sm font-medium hover:bg-stone-50" type="button" onClick={() => setDraft((current) => ({ ...current, linee: [...current.linee, newLine()] }))}>Aggiungi prestazione</button></div>
+                <div className="border-t border-stone-200 px-5 py-3"><button className="w-full border border-stone-300 py-2 text-sm font-medium hover:bg-stone-50" type="button" onClick={() => setDraft((current) => ({ ...current, linee: [...current.linee, newLine(current.aliquotaIva)] }))}>Aggiungi prestazione</button></div>
               </section>
 
               <section className="border border-stone-200 bg-white p-5">
@@ -660,8 +661,7 @@ export function InvoicesPage({ year }: { year: number }) {
                     </div>
                   )}
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <RateInput label="IVA (%)" value={draft.aliquotaIva} onChange={(value) => setDraft((current) => ({ ...current, aliquotaIva: value }))} />
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <RateInput label="Cassa (%)" value={draft.aliquotaCassa} onChange={(value) => setDraft((current) => ({ ...current, aliquotaCassa: value }))} />
                   <RateInput label="Ritenuta (%)" value={draft.aliquotaRitenuta} onChange={(value) => setDraft((current) => ({ ...current, aliquotaRitenuta: value }))} />
                 </div>
@@ -780,12 +780,12 @@ function InvoicePreview({
         </div>
         <div className="border-t border-stone-200">
           <div className="flex justify-between py-3 text-xs font-semibold uppercase text-stone-500"><span>Descrizione</span><span>Importo</span></div>
-          {draft.linee.map((line) => <div key={line.id} className="flex justify-between gap-3 border-t border-stone-100 py-3 text-sm"><span>{line.descrizione || 'Prestazione'} <span className="text-xs text-stone-500">× {line.quantita}</span></span><span className="shrink-0 tabular-nums">{euro.format(line.quantita * line.prezzoUnitario)}</span></div>)}
+          {draft.linee.map((line) => <div key={line.id} className="flex justify-between gap-3 border-t border-stone-100 py-3 text-sm"><span>{line.descrizione || 'Prestazione'} <span className="text-xs text-stone-500">× {line.quantita} · IVA {line.aliquotaIva ?? draft.aliquotaIva}%</span></span><span className="shrink-0 tabular-nums">{euro.format(line.quantita * line.prezzoUnitario)}</span></div>)}
         </div>
         <dl className="mt-6 space-y-2 border-t border-stone-200 pt-4 text-sm">
           <TotalRow label="Totale prestazioni" value={totals.imponibile} />
           {totals.cassa > 0 && <TotalRow label="Cassa previdenziale" value={totals.cassa} />}
-          <TotalRow label={`IVA (${draft.aliquotaIva}%)`} value={totals.iva} />
+          {totals.ivaPerAliquota.map((item) => <TotalRow key={item.aliquota} label={`IVA (${item.aliquota}%)`} value={item.iva} />)}
           {totals.ritenuta > 0 && <TotalRow label="Ritenuta d’acconto" value={-totals.ritenuta} />}
           {totals.bollo > 0 && <TotalRow label="Marca da bollo" value={totals.bollo} />}
           <div className="flex justify-between border-t border-stone-300 pt-3 text-base font-semibold"><dt>Totale</dt><dd className="tabular-nums">{euro.format(totals.totale)}</dd></div>

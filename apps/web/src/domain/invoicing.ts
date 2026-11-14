@@ -3,6 +3,7 @@ export interface InvoiceLine {
   descrizione: string
   quantita: number
   prezzoUnitario: number
+  aliquotaIva?: number
 }
 
 export interface InvoiceAccounts {
@@ -79,6 +80,7 @@ export interface InvoiceTotals {
   cassa: number
   baseIva: number
   iva: number
+  ivaPerAliquota: { aliquota: number; baseIva: number; iva: number }[]
   ritenuta: number
   bollo: number
   totale: number
@@ -95,13 +97,30 @@ const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 
 export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliquotaIva' | 'aliquotaCassa' | 'aliquotaRitenuta'> & Partial<Pick<InvoiceDraft, 'marcaDaBollo'>>): InvoiceTotals {
-  const taxableCents = draft.linee.reduce(
-    (total, line) => total + toCents(line.quantita * line.prezzoUnitario),
-    0,
-  )
+  const taxableByRate = new Map<number, number>()
+  for (const line of draft.linee) {
+    const rate = line.aliquotaIva ?? draft.aliquotaIva
+    const lineCents = toCents(line.quantita * line.prezzoUnitario)
+    taxableByRate.set(rate, (taxableByRate.get(rate) || 0) + lineCents)
+  }
+  const taxableCents = [...taxableByRate.values()].reduce((total, cents) => total + cents, 0)
   const contributionCents = Math.round(taxableCents * draft.aliquotaCassa / 100)
   const vatBaseCents = taxableCents + contributionCents
-  const vatCents = Math.round(vatBaseCents * draft.aliquotaIva / 100)
+  const rates = [...taxableByRate.entries()].sort(([left], [right]) => left - right)
+  let allocatedContributionCents = 0
+  const ivaPerAliquota = rates.map(([aliquota, baseCents], index) => {
+    const rateContributionCents = index === rates.length - 1
+      ? contributionCents - allocatedContributionCents
+      : taxableCents > 0 ? Math.round(contributionCents * baseCents / taxableCents) : 0
+    allocatedContributionCents += rateContributionCents
+    const rateBaseCents = baseCents + rateContributionCents
+    return {
+      aliquota,
+      baseIva: fromCents(rateBaseCents),
+      iva: fromCents(Math.round(rateBaseCents * aliquota / 100)),
+    }
+  })
+  const vatCents = ivaPerAliquota.reduce((total, item) => total + toCents(item.iva), 0)
   const withholdingCents = Math.round(taxableCents * draft.aliquotaRitenuta / 100)
   const stampDutyCents = draft.marcaDaBollo?.addebitata
     ? toCents(draft.marcaDaBollo.importo)
@@ -112,6 +131,7 @@ export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliq
     cassa: fromCents(contributionCents),
     baseIva: fromCents(vatBaseCents),
     iva: fromCents(vatCents),
+    ivaPerAliquota,
     ritenuta: fromCents(withholdingCents),
     bollo: fromCents(stampDutyCents),
     totale: fromCents(taxableCents + contributionCents + vatCents - withholdingCents + stampDutyCents),
@@ -155,6 +175,8 @@ export function validateInvoice(draft: InvoiceDraft): string[] {
     if (!line.descrizione.trim()) errors.push(`Inserisci la descrizione della voce ${index + 1}.`)
     if (!Number.isFinite(line.quantita) || line.quantita <= 0) errors.push(`La quantità della voce ${index + 1} deve essere maggiore di zero.`)
     if (!Number.isFinite(line.prezzoUnitario) || line.prezzoUnitario < 0) errors.push(`Il prezzo della voce ${index + 1} non è valido.`)
+    const rate = line.aliquotaIva ?? draft.aliquotaIva
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) errors.push(`L’aliquota IVA della voce ${index + 1} deve essere compresa tra 0 e 100.`)
   })
   for (const [label, rate] of [
     ['IVA', draft.aliquotaIva],

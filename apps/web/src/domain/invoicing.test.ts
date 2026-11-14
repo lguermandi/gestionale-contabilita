@@ -21,11 +21,34 @@ describe('motore fatturazione', () => {
       cassa: 8,
       baseIva: 208,
       iva: 45.76,
+      ivaPerAliquota: [{ aliquota: 22, baseIva: 208, iva: 45.76 }],
       ritenuta: 40,
       bollo: 0,
       totale: 213.76,
     })
     expect(validateInvoice(invoiceDraft)).toEqual([])
+  })
+
+  it('calcola e riepiloga l’IVA separatamente per aliquota', () => {
+    const mixedRates: InvoiceDraft = {
+      ...invoiceDraft,
+      aliquotaCassa: 0,
+      aliquotaRitenuta: 0,
+      linee: [
+        { id: 'line-1', descrizione: 'Servizio ordinario', quantita: 1, prezzoUnitario: 100, aliquotaIva: 22 },
+        { id: 'line-2', descrizione: 'Servizio agevolato', quantita: 1, prezzoUnitario: 100, aliquotaIva: 10 },
+      ],
+    }
+
+    expect(calculateInvoiceTotals(mixedRates)).toMatchObject({
+      imponibile: 200,
+      iva: 32,
+      totale: 232,
+      ivaPerAliquota: [
+        { aliquota: 10, baseIva: 100, iva: 10 },
+        { aliquota: 22, baseIva: 100, iva: 22 },
+      ],
+    })
   })
 
   it('genera una scrittura in partita doppia quadrata', () => {

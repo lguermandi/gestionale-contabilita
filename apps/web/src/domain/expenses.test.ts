@@ -15,16 +15,40 @@ const expense: ExpenseDraft = {
     email: '',
   },
   descrizione: 'Materiale ufficio',
-  conto: 'Acquisti',
-  imponibile: 100,
-  aliquotaIva: 22,
+  righe: [{ id: 'line-1', conto: 'Acquisti', imponibile: 100, aliquotaIva: 22 }],
   conti: { ivaCredito: 'IVA a credito', fornitori: 'Debiti v/fornitori', gestione: 'Tipica' },
   note: '',
 }
 
 describe('gestione spese', () => {
   it('calcola il totale in centesimi', () => {
-    expect(calculateExpenseTotals(expense)).toEqual({ imponibile: 100, iva: 22, totale: 122 })
+    expect(calculateExpenseTotals(expense)).toEqual({
+      imponibile: 100,
+      iva: 22,
+      totale: 122,
+      ivaPerAliquota: [{ aliquota: 22, imponibile: 100, iva: 22 }],
+    })
+  })
+
+  it('calcola IVA e imponibili distinti su più conti e aliquote', () => {
+    const mixedExpense = {
+      ...expense,
+      righe: [
+        { id: 'line-1', conto: 'Trasporti', imponibile: 50, aliquotaIva: 10 },
+        { id: 'line-2', conto: 'Materie prime', imponibile: 100, aliquotaIva: 22 },
+      ],
+    }
+
+    expect(calculateExpenseTotals(mixedExpense)).toMatchObject({
+      imponibile: 150,
+      iva: 27,
+      totale: 177,
+      ivaPerAliquota: [
+        { aliquota: 10, imponibile: 50, iva: 5 },
+        { aliquota: 22, imponibile: 100, iva: 22 },
+      ],
+    })
+    expect(validateExpense(mixedExpense)).toEqual([])
   })
 
   it('valida documento, fornitore e formato degli allegati', () => {

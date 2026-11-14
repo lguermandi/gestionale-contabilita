@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { fetchExpenses, fetchSuppliers, issueExpense, saveSupplier } from '../../api/ledgerApi'
-import type { ExpenseDraft, ExpenseAttachmentDraft, IssuedExpense } from '../../domain/expenses'
+import type { ExpenseDraft, ExpenseAttachmentDraft, ExpenseLine, IssuedExpense } from '../../domain/expenses'
 import { calculateExpenseTotals, validateExpense } from '../../domain/expenses'
 import type { InvoiceCustomer } from '../../domain/invoicing'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
@@ -39,9 +39,7 @@ function newExpense(accounts: ReturnType<typeof useProfileStore.getState>['compa
     numeroDocumento: '',
     fornitore: newSupplier(),
     descrizione: '',
-    conto: accounts.costi || 'Costi per acquisti',
-    imponibile: 0,
-    aliquotaIva: 22,
+    righe: [{ id: createId(), conto: accounts.costi || 'Costi per acquisti', imponibile: 0, aliquotaIva: 22 }],
     conti: {
       ivaCredito: accounts.ivaCredito || 'IVA a credito',
       fornitori: accounts.fornitori || 'Debiti v/fornitori',
@@ -112,6 +110,15 @@ export function ExpensesPage({ year }: { year: number }) {
       supplier.email, supplier.telefono,
     ].some((value) => value?.toLocaleLowerCase('it').includes(query)))
   }, [supplierQuery, visibleSuppliers])
+
+  function updateExpenseLine(id: string, key: keyof Omit<ExpenseLine, 'id'>, value: string) {
+    setDraft((current) => ({
+      ...current,
+      righe: (current.righe || []).map((line) => line.id === id
+        ? { ...line, [key]: key === 'conto' ? value : Number(value) }
+        : line),
+    }))
+  }
 
   useEffect(() => {
     if (!token || !spreadsheetId) return
@@ -257,8 +264,25 @@ export function ExpensesPage({ year }: { year: number }) {
               <label className="block text-sm text-stone-700">Email<input className={`${inputClass} mt-1`} type="email" value={draft.fornitore.email} onChange={(event) => setDraft((current) => ({ ...current, fornitore: { ...current.fornitore, email: event.target.value } }))} /></label>
             </div>}
             <div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm text-stone-700">Data documento<input className={`${inputClass} mt-1`} type="date" value={draft.data} onChange={(event) => setDraft((current) => ({ ...current, data: event.target.value }))} required /></label><label className="block text-sm text-stone-700">Numero documento<input className={`${inputClass} mt-1`} value={draft.numeroDocumento} maxLength={80} onChange={(event) => setDraft((current) => ({ ...current, numeroDocumento: event.target.value }))} /></label></div>
-            <div className="grid gap-3 sm:grid-cols-3"><label className="block text-sm text-stone-700 sm:col-span-2">Conto di costo<input className={`${inputClass} mt-1`} value={draft.conto} maxLength={200} onChange={(event) => setDraft((current) => ({ ...current, conto: event.target.value }))} required /></label><label className="block text-sm text-stone-700">Aliquota IVA %<input className={`${inputClass} mt-1`} type="number" min="0" max="100" step="0.1" value={draft.aliquotaIva} onChange={(event) => setDraft((current) => ({ ...current, aliquotaIva: Number(event.target.value) }))} /></label></div>
-            <div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm text-stone-700">Imponibile<input className={`${inputClass} mt-1`} type="number" min="0.01" step="0.01" value={draft.imponibile || ''} onChange={(event) => setDraft((current) => ({ ...current, imponibile: Number(event.target.value) }))} required /></label><div className="self-end pb-3 text-right text-sm text-stone-500">Totale <strong className="text-stone-900">{euro.format(totals.totale)}</strong></div></div>
+            <section className="border-t border-stone-200 pt-4">
+              <h3 className="mb-3 font-medium text-stone-900">Voci di costo</h3>
+              <div className="space-y-3">
+                {(draft.righe || []).map((line, index) => (
+                  <div key={line.id} className="grid gap-2 rounded border border-stone-200 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(100px,0.6fr)_minmax(90px,0.5fr)_auto]">
+                    <label className="block text-sm text-stone-700">Conto di costo<input className={`${inputClass} mt-1`} aria-label={`Conto di costo ${index + 1}`} value={line.conto} maxLength={200} onChange={(event) => updateExpenseLine(line.id, 'conto', event.target.value)} required /></label>
+                    <label className="block text-sm text-stone-700">Imponibile<input className={`${inputClass} mt-1`} aria-label={`Imponibile ${index + 1}`} type="number" min="0.01" step="0.01" value={line.imponibile || ''} onChange={(event) => updateExpenseLine(line.id, 'imponibile', event.target.value)} required /></label>
+                    <label className="block text-sm text-stone-700">IVA %<input className={`${inputClass} mt-1`} aria-label={`Aliquota IVA ${index + 1}`} type="number" min="0" max="100" step="0.1" value={line.aliquotaIva} onChange={(event) => updateExpenseLine(line.id, 'aliquotaIva', event.target.value)} required /></label>
+                    <button className="min-h-10 px-2 text-lg text-stone-500 disabled:opacity-30" type="button" title="Rimuovi voce di costo" aria-label="Rimuovi voce di costo" disabled={(draft.righe || []).length <= 1} onClick={() => setDraft((current) => ({ ...current, righe: (current.righe || []).filter((item) => item.id !== line.id) }))}>×</button>
+                  </div>
+                ))}
+              </div>
+              <button className="mt-3 w-full border border-stone-300 py-2 text-sm font-medium hover:bg-stone-50" type="button" onClick={() => setDraft((current) => ({ ...current, righe: [...(current.righe || []), { id: createId(), conto: '', imponibile: 0, aliquotaIva: 22 }] }))}>Aggiungi voce di costo</button>
+            </section>
+            <dl className="space-y-2 border-t border-stone-200 pt-3 text-sm">
+              <div className="flex justify-between"><dt>Imponibile</dt><dd>{euro.format(totals.imponibile)}</dd></div>
+              {totals.ivaPerAliquota.map((item) => <div key={item.aliquota} className="flex justify-between text-stone-600"><dt>IVA {item.aliquota}%</dt><dd>{euro.format(item.iva)}</dd></div>)}
+              <div className="flex justify-between border-t border-stone-200 pt-2 text-base font-semibold"><dt>Totale</dt><dd className="text-stone-900">{euro.format(totals.totale)}</dd></div>
+            </dl>
             <label className="block text-sm text-stone-700">Note<textarea className="mt-1 min-h-20 w-full border border-stone-300 bg-white p-3 text-sm" maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} /></label>
             <button type="submit" className="min-h-11 w-full bg-stone-950 px-5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:opacity-50" disabled={saving || !token}>{saving ? 'Salvataggio…' : 'Salva spesa'}</button>
           </section>

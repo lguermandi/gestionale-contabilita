@@ -52,9 +52,7 @@ const expense: ExpenseDraft = {
   numeroDocumento: 'FT-1',
   fornitore: customer,
   descrizione: 'Materiale',
-  conto: 'Costi',
-  imponibile: 10,
-  aliquotaIva: 22,
+  righe: [{ id: 'expense-line-1', conto: 'Costi', imponibile: 10, aliquotaIva: 22 }],
   conti: { ivaCredito: 'IVA a credito', fornitori: 'Debiti v/fornitori', gestione: 'Tipica' },
   note: '',
 }

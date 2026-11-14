@@ -63,17 +63,18 @@ export function createInvoicePdf(invoice: IssuedInvoice, company: CompanyProfile
   const tableTop = buyerTop + Math.max(20, 13 + buyerDetails.length * 5)
   autoTable(document, {
     startY: tableTop,
-    head: [['Descrizione', 'Quantità', 'Prezzo unitario', 'Importo']],
+    head: [['Descrizione', 'Quantità', 'Prezzo unitario', 'IVA', 'Importo']],
     body: invoice.linee.map((line) => [
       line.descrizione,
       line.quantita.toLocaleString('it-IT'),
       euro.format(line.prezzoUnitario),
+      `${line.aliquotaIva ?? invoice.aliquotaIva}%`,
       euro.format(line.quantita * line.prezzoUnitario),
     ]),
     theme: 'grid',
     headStyles: { fillColor: [245, 245, 244], textColor: [68, 64, 60], fontStyle: 'bold' },
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, lineColor: [214, 211, 209], textColor: [41, 37, 36] },
-    columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'right', cellWidth: 24 }, 2: { halign: 'right', cellWidth: 38 }, 3: { halign: 'right', cellWidth: 34 } },
+    columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'right', cellWidth: 20 }, 2: { halign: 'right', cellWidth: 34 }, 3: { halign: 'right', cellWidth: 18 }, 4: { halign: 'right', cellWidth: 34 } },
     margin: { left, right: 18 },
   })
 
@@ -93,7 +94,9 @@ export function createInvoicePdf(invoice: IssuedInvoice, company: CompanyProfile
   const totalsRows = [
     ['Imponibile', euro.format(invoice.totali.imponibile)],
     ...(invoice.totali.cassa > 0 ? [[`Cassa previdenziale ${invoice.aliquotaCassa}%`, euro.format(invoice.totali.cassa)]] : []),
-    [`IVA ${invoice.aliquotaIva}% su ${euro.format(invoice.totali.baseIva)}`, euro.format(invoice.totali.iva)],
+    ...(invoice.totali.ivaPerAliquota?.length
+      ? invoice.totali.ivaPerAliquota.map((item) => [`IVA ${item.aliquota}% su ${euro.format(item.baseIva)}`, euro.format(item.iva)])
+      : [[`IVA ${invoice.aliquotaIva}% su ${euro.format(invoice.totali.baseIva)}`, euro.format(invoice.totali.iva)]]),
     ...(invoice.totali.ritenuta > 0 ? [[`Ritenuta ${invoice.aliquotaRitenuta}%`, `- ${euro.format(invoice.totali.ritenuta)}`]] : []),
     ...((invoice.totali.bollo || 0) > 0 ? [['Marca da bollo', euro.format(invoice.totali.bollo)]] : []),
     ['Totale da pagare', euro.format(invoice.totali.totale)],

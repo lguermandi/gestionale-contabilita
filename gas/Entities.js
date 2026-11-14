@@ -36,6 +36,120 @@ const ENTITY_MOVEMENT_HEADERS_ = [
 const ENTITY_LEGACY_INDEX_HEADERS_ = [
   'ID', 'Nome_Entita', 'Tipologia', 'Folder_ID', 'Spreadsheet_ID'
 ];
+const BUSINESS_CHART_OF_ACCOUNTS_ = [
+  ['1.01.01', 'Costi di impianto e ampliamento', 'Attività', 'Patrimoniale'],
+  ['1.01.02', 'Costi di sviluppo', 'Attività', 'Patrimoniale'],
+  ['1.01.03', 'Brevetti e diritti di utilizzazione', 'Attività', 'Patrimoniale'],
+  ['1.01.04', 'Concessioni, licenze e marchi', 'Attività', 'Patrimoniale'],
+  ['1.01.05', 'Avviamento', 'Attività', 'Patrimoniale'],
+  ['1.01.06', 'Immobilizzazioni immateriali in corso', 'Attività', 'Patrimoniale'],
+  ['1.02.01', 'Terreni e fabbricati', 'Attività', 'Patrimoniale'],
+  ['1.02.02', 'Impianti e macchinari', 'Attività', 'Patrimoniale'],
+  ['1.02.03', 'Attrezzature industriali e commerciali', 'Attività', 'Patrimoniale'],
+  ['1.02.04', 'Altri beni materiali', 'Attività', 'Patrimoniale'],
+  ['1.02.05', 'Immobilizzazioni materiali in corso', 'Attività', 'Patrimoniale'],
+  ['1.03.01', 'Partecipazioni in imprese controllate', 'Attività', 'Patrimoniale'],
+  ['1.03.02', 'Partecipazioni in imprese collegate', 'Attività', 'Patrimoniale'],
+  ['1.03.03', 'Altre partecipazioni', 'Attività', 'Patrimoniale'],
+  ['1.03.04', 'Crediti finanziari immobilizzati', 'Attività', 'Patrimoniale'],
+  ['1.04.01', 'Rimanenze di materie prime', 'Attività', 'Patrimoniale'],
+  ['1.04.02', 'Rimanenze di semilavorati', 'Attività', 'Patrimoniale'],
+  ['1.04.03', 'Rimanenze di prodotti finiti', 'Attività', 'Patrimoniale'],
+  ['1.04.04', 'Lavori in corso su ordinazione', 'Attività', 'Patrimoniale'],
+  ['1.05.01', 'Crediti v/clienti', 'Attività', 'Patrimoniale'],
+  ['1.05.02', 'Effetti attivi e ricevute bancarie', 'Attività', 'Patrimoniale'],
+  ['1.05.03', 'Fatture da emettere', 'Attività', 'Patrimoniale'],
+  ['1.05.04', 'Fondo svalutazione crediti', 'Attività', 'Patrimoniale'],
+  ['1.05.05', 'Crediti v/controllate e collegate', 'Attività', 'Patrimoniale'],
+  ['1.05.06', 'Crediti tributari', 'Attività', 'Patrimoniale'],
+  ['1.05.07', 'IVA a credito', 'Attività', 'Patrimoniale'],
+  ['1.05.08', 'Erario c/ritenute subite', 'Attività', 'Patrimoniale'],
+  ['1.05.09', 'Imposte anticipate', 'Attività', 'Patrimoniale'],
+  ['1.05.10', 'Crediti v/altri', 'Attività', 'Patrimoniale'],
+  ['1.06.01', 'Banca c/c', 'Attività', 'Patrimoniale'],
+  ['1.06.02', 'Depositi bancari e postali', 'Attività', 'Patrimoniale'],
+  ['1.06.03', 'Assegni', 'Attività', 'Patrimoniale'],
+  ['1.06.04', 'Cassa', 'Attività', 'Patrimoniale'],
+  ['1.06.05', 'Valori bollati', 'Attività', 'Patrimoniale'],
+  ['1.07.01', 'Ratei e risconti attivi', 'Attività', 'Patrimoniale'],
+  ['2.01.01', 'Capitale sociale', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.02', 'Riserva legale', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.03', 'Riserve statutarie', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.04', 'Altre riserve', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.05', 'Utili portati a nuovo', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.06', 'Perdite portate a nuovo', 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.07', "Utile d'esercizio", 'Patrimonio netto', 'Patrimoniale'],
+  ['2.01.08', "Perdita d'esercizio", 'Patrimonio netto', 'Patrimoniale'],
+  ['2.02.01', 'Fondi per rischi e oneri', 'Passività', 'Patrimoniale'],
+  ['2.02.02', 'Fondo imposte differite', 'Passività', 'Patrimoniale'],
+  ['2.02.03', 'Fondo trattamento di fine rapporto', 'Passività', 'Patrimoniale'],
+  ['2.03.01', 'Prestiti obbligazionari', 'Passività', 'Patrimoniale'],
+  ['2.03.02', 'Mutui passivi', 'Passività', 'Patrimoniale'],
+  ['2.03.03', 'Debiti v/banche', 'Passività', 'Patrimoniale'],
+  ['2.03.04', 'Debiti v/altri finanziatori', 'Passività', 'Patrimoniale'],
+  ['2.04.01', 'Debiti v/fornitori', 'Passività', 'Patrimoniale'],
+  ['2.04.02', 'Fatture da ricevere', 'Passività', 'Patrimoniale'],
+  ['2.04.03', 'Effetti passivi', 'Passività', 'Patrimoniale'],
+  ['2.04.04', 'Debiti v/controllate e collegate', 'Passività', 'Patrimoniale'],
+  ['2.05.01', 'IVA a debito', 'Passività', 'Patrimoniale'],
+  ['2.05.02', 'Erario c/ritenute da versare', 'Passività', 'Patrimoniale'],
+  ['2.05.03', 'Debiti per imposte correnti', 'Passività', 'Patrimoniale'],
+  ['2.05.04', 'Debiti per imposta di bollo', 'Passività', 'Patrimoniale'],
+  ['2.05.05', 'Debiti v/INPS e istituti previdenziali', 'Passività', 'Patrimoniale'],
+  ['2.05.06', 'Contributi previdenziali', 'Passività', 'Patrimoniale'],
+  ['2.05.07', 'Debiti v/dipendenti', 'Passività', 'Patrimoniale'],
+  ['2.05.08', 'Acconti da clienti', 'Passività', 'Patrimoniale'],
+  ['2.05.09', 'Debiti diversi', 'Passività', 'Patrimoniale'],
+  ['2.06.01', 'Ratei e risconti passivi', 'Passività', 'Patrimoniale'],
+  ['3.01.01', 'Costi per acquisti', 'Costo', 'Tipica'],
+  ['3.01.02', 'Acquisti di materie prime', 'Costo', 'Tipica'],
+  ['3.01.03', 'Acquisti di merci', 'Costo', 'Tipica'],
+  ['3.01.04', 'Materiali di consumo', 'Costo', 'Tipica'],
+  ['3.01.05', 'Resi, sconti e abbuoni su acquisti', 'Costo', 'Tipica'],
+  ['3.02.01', 'Costi per servizi', 'Costo', 'Tipica'],
+  ['3.02.02', 'Consulenze professionali', 'Costo', 'Tipica'],
+  ['3.02.03', 'Lavorazioni di terzi', 'Costo', 'Tipica'],
+  ['3.02.04', 'Utenze', 'Costo', 'Tipica'],
+  ['3.02.05', 'Spese telefoniche e internet', 'Costo', 'Tipica'],
+  ['3.02.06', 'Manutenzioni e riparazioni', 'Costo', 'Tipica'],
+  ['3.02.07', 'Pubblicità e marketing', 'Costo', 'Tipica'],
+  ['3.02.08', 'Trasporti e spedizioni', 'Costo', 'Tipica'],
+  ['3.02.09', 'Assicurazioni', 'Costo', 'Tipica'],
+  ['3.02.10', 'Spese bancarie', 'Costo', 'Finanziaria'],
+  ['3.02.11', 'Spese amministrative e generali', 'Costo', 'Tipica'],
+  ['3.03.01', 'Canoni di locazione', 'Costo', 'Tipica'],
+  ['3.03.02', 'Leasing e noleggi', 'Costo', 'Tipica'],
+  ['3.03.03', 'Licenze software e servizi digitali', 'Costo', 'Tipica'],
+  ['3.04.01', 'Salari e stipendi', 'Costo', 'Tipica'],
+  ['3.04.02', 'Oneri sociali', 'Costo', 'Tipica'],
+  ['3.04.03', 'Accantonamento TFR', 'Costo', 'Tipica'],
+  ['3.04.04', 'Altri costi del personale', 'Costo', 'Tipica'],
+  ['3.05.01', 'Ammortamento immobilizzazioni immateriali', 'Costo', 'Tipica'],
+  ['3.05.02', 'Ammortamento immobilizzazioni materiali', 'Costo', 'Tipica'],
+  ['3.05.03', 'Svalutazione crediti e disponibilità', 'Costo', 'Tipica'],
+  ['3.06.01', 'Imposte e tasse indirette', 'Costo', 'Fiscale'],
+  ['3.06.02', 'Imposte sul reddito', 'Costo', 'Fiscale'],
+  ['3.06.03', 'Sanzioni e interessi tributari', 'Costo', 'Fiscale'],
+  ['3.07.01', 'Interessi passivi su mutui', 'Costo', 'Finanziaria'],
+  ['3.07.02', 'Interessi passivi bancari', 'Costo', 'Finanziaria'],
+  ['3.07.03', 'Perdite su cambi', 'Costo', 'Finanziaria'],
+  ['3.08.01', 'Minusvalenze e sopravvenienze passive', 'Costo', 'Straordinaria'],
+  ['3.08.02', 'Oneri diversi di gestione', 'Costo', 'Tipica'],
+  ['4.01.01', 'Ricavi da servizi', 'Ricavo', 'Tipica'],
+  ['4.01.02', 'Ricavi delle vendite', 'Ricavo', 'Tipica'],
+  ['4.01.03', 'Ricavi per prestazioni professionali', 'Ricavo', 'Tipica'],
+  ['4.01.04', 'Ricavi per lavori su ordinazione', 'Ricavo', 'Tipica'],
+  ['4.01.05', 'Resi, sconti e abbuoni su vendite', 'Ricavo', 'Tipica'],
+  ['4.02.01', 'Variazione rimanenze prodotti', 'Ricavo', 'Tipica'],
+  ['4.02.02', 'Incrementi di immobilizzazioni per lavori interni', 'Ricavo', 'Tipica'],
+  ['4.03.01', 'Contributi in conto esercizio', 'Ricavo', 'Tipica'],
+  ['4.03.02', 'Altri ricavi e proventi', 'Ricavo', 'Tipica'],
+  ['4.03.03', 'Rimborsi e riaddebiti', 'Ricavo', 'Tipica'],
+  ['4.03.04', 'Plusvalenze e sopravvenienze attive', 'Ricavo', 'Straordinaria'],
+  ['4.04.01', 'Interessi attivi bancari', 'Ricavo', 'Finanziaria'],
+  ['4.04.02', 'Altri proventi finanziari', 'Ricavo', 'Finanziaria'],
+  ['4.04.03', 'Utili su cambi', 'Ricavo', 'Finanziaria'],
+];
 
 function initSystem() {
   const lock = LockService.getScriptLock();
@@ -95,11 +209,23 @@ function getEntities() {
   const lastRow = system.indexSheet.getLastRow();
   if (lastRow < 2) return [];
 
-  return system.indexSheet.getRange(2, 1, lastRow - 1, ENTITY_INDEX_HEADERS_.length)
+  const entities = system.indexSheet.getRange(2, 1, lastRow - 1, ENTITY_INDEX_HEADERS_.length)
     .getValues()
     .map(row => entityRecord_(
       row[0], row[1], row[2], row[3], row[4], row[5]
     ));
+
+  entities.filter(entity => entity.tipologia === 'Azienda').forEach(entity => {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const spreadsheet = SpreadsheetApp.openById(entity.structureSpreadsheetId);
+      if (seedBusinessChartOfAccounts_(spreadsheet)) SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
+  });
+  return entities;
 }
 
 function linkPrivateEntityToMasterMovements() {
@@ -468,6 +594,26 @@ function initializeEntityStructureSpreadsheet_(spreadsheet, entity) {
     entity.partitaIva,
     entity.regime
   ]]);
+  if (entity.tipologia === 'Azienda') seedBusinessChartOfAccounts_(spreadsheet);
+}
+
+function seedBusinessChartOfAccounts_(spreadsheet) {
+  let sheet = spreadsheet.getSheetByName('Piano_Conti');
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet('Piano_Conti');
+  }
+  if (sheet.getLastRow() > 1) return false;
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, ENTITY_STRUCTURE_SHEETS_[1].headers.length)
+      .setValues([ENTITY_STRUCTURE_SHEETS_[1].headers])
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  sheet.getRange(2, 1, BUSINESS_CHART_OF_ACCOUNTS_.length, 5)
+    .setValues(BUSINESS_CHART_OF_ACCOUNTS_.map(account => [
+      account[0], account[1], account[2], account[3], true
+    ]));
+  return true;
 }
 
 function initializeEntityMovementsSpreadsheet_(spreadsheet) {

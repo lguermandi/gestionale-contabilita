@@ -53,9 +53,15 @@ funzione richiede una sola entità `Privato`, collega il Master nella colonna
 Lo spazio contiene le cartelle `Contabilità`, `Fatture emesse`, `Ricevute`,
 `Estratti conto`, `Spese` e `Documenti/Allegati spese`. In `Contabilità` viene
 creato un foglio Google con registri annuali, fatture, note di credito, clienti,
-fornitori e spese. Le operazioni dell'account sono instradate al suo foglio; gli
-account provisionati successivamente hanno spazi separati. Un account già
-collegato al foglio contabile prima di questa versione mantiene i dati esistenti.
+fornitori e spese. Per le entità Azienda il foglio `Piano_Conti` viene inizializzato
+con un piano generale di conti patrimoniali ed economici; le aziende esistenti
+con il solo foglio vuoto ricevono il piano al successivo caricamento delle entità.
+I piani già compilati non vengono modificati. Il piano è una base da adattare
+all'attività, al regime fiscale e alle indicazioni del commercialista, non una
+classificazione fiscale o civilistica certificata. Le operazioni dell'account
+sono instradate al suo foglio; gli account provisionati successivamente hanno
+spazi separati. Un account già collegato al foglio contabile prima di questa
+versione mantiene i dati esistenti.
 
 ### Configurazione Google Drive Picker
 

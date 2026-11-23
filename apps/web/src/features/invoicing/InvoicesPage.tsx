@@ -335,6 +335,7 @@ export function InvoicesPage({ year }: { year: number }) {
     }
 
     setSaving(true)
+    let archiveErrorMessage = ''
     try {
       const invoice = await issueInvoice(token, draft, spreadsheetId || undefined)
       let archivedInvoice = invoice
@@ -349,9 +350,9 @@ export function InvoicesPage({ year }: { year: number }) {
           spreadsheetId || undefined,
         )
       } catch (archiveError) {
-        setMessage(archiveError instanceof Error
-          ? `Fattura emessa, ma archiviazione Drive non riuscita: ${archiveError.message}`
-          : 'Fattura emessa, ma archiviazione Drive non riuscita.')
+        archiveErrorMessage = archiveError instanceof Error
+          ? archiveError.message
+          : 'Archiviazione Drive non riuscita.'
       }
       setInvoices((current) => [archivedInvoice, ...current.filter((item) => item.id !== archivedInvoice.id)])
       setInvoiceScope(`${year}:${token}:${spreadsheetId}`)
@@ -365,9 +366,12 @@ export function InvoicesPage({ year }: { year: number }) {
       }
       try {
         downloadInvoicePdf(invoice, company)
-        setMessage(profileSaveError
-          ? `Fattura ${invoice.numero} emessa e PDF scaricato, ma le impostazioni non sono state aggiornate su Drive: ${profileSaveError}`
-          : `Fattura ${invoice.numero} emessa e PDF scaricato.`)
+        const statusMessages = [
+          `Fattura ${invoice.numero} emessa e PDF scaricato.`,
+          archiveErrorMessage ? `Archiviazione Drive non riuscita: ${archiveErrorMessage}` : '',
+          profileSaveError ? `Impostazioni non aggiornate su Drive: ${profileSaveError}` : '',
+        ].filter(Boolean)
+        setMessage(statusMessages.join(' '))
       } catch {
         setMessage(profileSaveError
           ? `Fattura ${invoice.numero} emessa, ma PDF e aggiornamento impostazioni non sono riusciti. ${profileSaveError}`
@@ -398,6 +402,24 @@ export function InvoicesPage({ year }: { year: number }) {
       setMessage(`XML FatturaPA ${invoice.numero} generato.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Impossibile generare l’XML FatturaPA.')
+    }
+  }
+
+  async function handleArchive(invoice: IssuedInvoice) {
+    if (!token || !spreadsheetId) {
+      setMessage('Accedi a GAS e seleziona un’entità prima di archiviare.')
+      return
+    }
+    try {
+      const pdf = createInvoicePdf(invoice, company).output('arraybuffer') as ArrayBuffer
+      const xml = buildFatturaPaXml(invoice, company)
+      const archived = await archiveInvoice(token, invoice, arrayBufferToBase64(pdf), xml, spreadsheetId)
+      setInvoices((current) => [archived, ...current.filter((item) => item.id !== archived.id)])
+      setMessage(`Fattura ${invoice.numero} archiviata su Google Drive.`)
+    } catch (error) {
+      setMessage(error instanceof Error
+        ? `Archiviazione Drive non riuscita: ${error.message}`
+        : 'Archiviazione Drive non riuscita.')
     }
   }
 
@@ -532,6 +554,9 @@ export function InvoicesPage({ year }: { year: number }) {
                         <div className="flex justify-end gap-3">
                           <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
                           <button className="font-medium text-indigo-700 underline" type="button" onClick={() => handleXml(invoice)}>XML</button>
+                          <button className="font-medium text-stone-700 underline" type="button" onClick={() => void handleArchive(invoice)}>
+                            {invoice.archivio ? 'Aggiorna Drive' : 'Archivia'}
+                          </button>
                           {invoice.archivio?.folderUrl && (
                             <a className="font-medium text-stone-600 underline" href={invoice.archivio.folderUrl} target="_blank" rel="noreferrer">Drive</a>
                           )}

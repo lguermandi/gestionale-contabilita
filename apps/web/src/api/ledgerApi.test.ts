@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createAccountingEntity, fetchCreditNotes, fetchCustomers, fetchEntities, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactionHistory, fetchTransactions, getWorkspaceSetupStatus, initializeWorkspace, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
+import { archiveInvoice, createAccountingEntity, fetchCreditNotes, fetchCustomers, fetchEntities, fetchExpenses, fetchInvoices, fetchSuppliers, fetchTransactionHistory, fetchTransactions, getWorkspaceSetupStatus, initializeWorkspace, issueCreditNote, issueExpense, issueInvoice, loginToGas, logoutFromGas, saveCustomer, saveSupplier, saveTransaction } from './ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
 import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft } from '../domain/invoicing'
 import type { ExpenseDraft } from '../domain/expenses'
@@ -95,9 +95,15 @@ describe('client API GAS', () => {
     await fetchExpenses(2026, 'sessione', spreadsheetId)
     await issueExpense('sessione', expense, spreadsheetId)
     await issueInvoice('sessione', invoice, spreadsheetId)
+    await archiveInvoice('sessione', {
+      ...invoice,
+      numero: '2026/0001',
+      stato: 'emessa',
+      totali: { imponibile: 100, cassa: 0, baseIva: 100, iva: 22, ivaPerAliquota: [], ritenuta: 0, bollo: 0, totale: 122 },
+    }, 'cGRm', '<?xml version="1.0"?><p:FatturaElettronica/>', spreadsheetId)
     await logoutFromGas('sessione')
 
-    expect(fetchMock).toHaveBeenCalledTimes(19)
+    expect(fetchMock).toHaveBeenCalledTimes(20)
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec')
       expect(init?.method).toBe('POST')
@@ -125,6 +131,7 @@ describe('client API GAS', () => {
       'getExpenses',
       'issueExpense',
       'issueInvoice',
+      'archiveInvoice',
       'logout',
     ])
     expect(payloads[1]).toMatchObject({ token: 'sessione' })

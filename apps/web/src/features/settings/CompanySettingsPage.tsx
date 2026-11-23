@@ -33,7 +33,9 @@ const accountFields: Array<{ key: keyof InvoiceAccounts; label: string }> = [
 export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad: () => void }) {
   const token = useGasSessionStore((state) => state.token)
   const entities = useEntityStore((state) => state.entities)
+  const activeEntityId = useEntityStore((state) => state.activeEntityId)
   const activeSpreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
+  const selectEntity = useEntityStore((state) => state.selectEntity)
   const entitiesLoading = useEntityStore((state) => state.loading)
   const entitiesError = useEntityStore((state) => state.error)
   const createEntity = useEntityStore((state) => state.createEntity)
@@ -54,6 +56,7 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
   const [entityError, setEntityError] = useState('')
   const [entityMessage, setEntityMessage] = useState('')
   const [creatingEntity, setCreatingEntity] = useState(false)
+  const hasChanges = JSON.stringify(profile) !== JSON.stringify(savedProfile)
 
   useEffect(() => {
     if (profileStatus === 'ready') {
@@ -109,23 +112,51 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
   }
 
   return (
-    <section className="mx-auto w-full max-w-4xl px-5 py-8 md:px-8">
-      <div className="mb-7 border-b border-stone-200 pb-5">
-        <p className="mb-2 text-xs font-semibold uppercase text-emerald-800">Profilo aziendale</p>
+    <section className="mx-auto w-full max-w-5xl px-5 py-8 md:px-8">
+      <div className="mb-6">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-800">Configurazione</p>
         <h1 className="text-2xl font-semibold text-stone-900">Impostazioni</h1>
-        <p className="mt-2 text-sm text-stone-600">Dati emittente e conti usati per fatture e scritture automatiche.</p>
+        <p className="mt-2 max-w-2xl text-sm text-stone-600">Scegli l’entità e completa i dati che verranno usati nelle fatture e nelle registrazioni contabili.</p>
       </div>
-      <section className="mb-6 border border-emerald-200 bg-emerald-50 p-5" aria-labelledby="data-location-title">
-        <h2 id="data-location-title" className="mb-2 font-semibold text-stone-900">I tuoi dati: dove sono salvati?</h2>
-        <p className="text-sm text-stone-700">
-          I dati dell’emittente e la mappatura contabile vengono salvati su Google Drive, nella scheda
-          <strong> Impostazioni</strong> del file Contabilità dell’entità selezionata. Potrai ritrovarli e usarli
-          anche da un altro dispositivo.
-        </p>
-        <p className="mt-2 text-sm text-stone-700">
-          Il browser conserva una copia per mostrare i dati più rapidamente. Movimenti, fatture, clienti,
-          fornitori e spese sono salvati nei rispettivi fogli Google Drive dell’entità.
-        </p>
+      <section className="mb-6 border border-stone-200 bg-white p-5" aria-labelledby="active-entity-title">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Entità attiva</p>
+            <h2 id="active-entity-title" className="mt-1 font-semibold text-stone-900">
+              {activeEntity ? activeEntity.nomeEntita : 'Nessuna entità selezionata'}
+            </h2>
+            {activeEntity && <p className="mt-1 text-sm text-stone-600">{activeEntity.tipologia} · impostazioni separate per questa entità</p>}
+          </div>
+          <label className="block w-full text-sm text-stone-700 sm:w-72">
+            Cambia entità
+            <select
+              aria-label="Entità contabile attiva"
+              className={inputClass}
+              value={activeEntityId || ''}
+              disabled={!token || entitiesLoading || !entities.length}
+              onChange={(event) => selectEntity(event.target.value)}
+            >
+              {!entities.length && <option value="">{token ? 'Nessuna entità' : 'Accedi a GAS'}</option>}
+              {entities.map((entity) => (
+                <option key={entity.id} value={entity.id}>{entity.nomeEntita} · {entity.tipologia}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {activeEntity && (
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-stone-200 pt-4 text-sm">
+            <a className="font-medium text-emerald-800 underline" href={`https://drive.google.com/drive/folders/${encodeURIComponent(activeEntity.folderId)}`} target="_blank" rel="noreferrer">Apri cartella Drive</a>
+            <a className="font-medium text-emerald-800 underline" href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.structureSpreadsheetId)}/edit`} target="_blank" rel="noreferrer">Apri scheda Impostazioni</a>
+            <a className="font-medium text-emerald-800 underline" href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.spreadsheetId)}/edit`} target="_blank" rel="noreferrer">Apri movimenti</a>
+            <a className="font-medium text-emerald-800 underline" href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.spreadsheetId)}/export?format=xlsx`}>Scarica backup XLSX</a>
+          </div>
+        )}
+      </section>
+      <section className="mb-6 flex flex-col gap-2 border border-emerald-200 bg-emerald-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" aria-labelledby="data-location-title">
+        <div>
+          <h2 id="data-location-title" className="font-semibold text-stone-900">Dati salvati su Google Drive</h2>
+          <p className="mt-1 text-sm text-stone-700">I dati fiscali e i conti dell’entità sono nella scheda <strong>Impostazioni</strong>. Sono disponibili su tutti i dispositivi dopo l’accesso.</p>
+        </div>
         {profileStatus === 'loading' && <p className="mt-3 text-sm text-stone-600" role="status">Lettura delle impostazioni da Google Drive…</p>}
         {profileStatus === 'error' && (
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-rose-700" role="alert">
@@ -141,42 +172,10 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
         )}
       </section>
       <section className="mb-6 border border-stone-200 bg-white p-5">
-        <h2 className="mb-2 font-semibold text-stone-900">Entità contabili su Google Drive</h2>
-        <p className="mb-4 text-sm text-stone-600">Ogni entità mantiene cartella e foglio contabile separati.</p>
-        {activeEntity && (
-          <div className="mb-4 border border-stone-200 bg-stone-50 p-4">
-            <p className="text-sm text-stone-700">
-              Entità selezionata: <strong>{activeEntity.nomeEntita}</strong> ({activeEntity.tipologia}).
-              I file sono nel Drive dell’account Google che esegue il backend GAS.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
-              <a
-                className="font-medium text-emerald-800 underline"
-                href={`https://drive.google.com/drive/folders/${encodeURIComponent(activeEntity.folderId)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Apri cartella dell’entità su Drive
-              </a>
-              <a
-                className="font-medium text-emerald-800 underline"
-                href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.structureSpreadsheetId)}/edit`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Apri file Contabilità (impostazioni e anagrafica)
-              </a>
-              <a
-                className="font-medium text-emerald-800 underline"
-                href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.spreadsheetId)}/edit`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Apri foglio dei movimenti
-              </a>
-            </div>
-          </div>
-        )}
+        <div className="mb-4">
+          <h2 className="font-semibold text-stone-900">Crea una nuova entità</h2>
+          <p className="mt-1 text-sm text-stone-600">Ogni entità ha cartella, anagrafiche e movimenti separati su Google Drive.</p>
+        </div>
         <form onSubmit={handleCreateEntity} className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm text-stone-700">
             Nome
@@ -198,19 +197,9 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
             <input className={inputClass} value={entityVatNumber} onChange={(event) => setEntityVatNumber(event.target.value)} maxLength={32} />
           </label>
           <div className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" disabled={creatingEntity || !token} className="min-h-11 bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-                {creatingEntity ? 'Creazione…' : 'Crea entità'}
-              </button>
-              {activeEntity && (
-                <a
-                  className="inline-flex min-h-11 items-center border border-stone-300 px-4 text-sm font-medium text-stone-700 hover:bg-stone-50"
-                  href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(activeEntity.spreadsheetId)}/export?format=xlsx`}
-                >
-                  Scarica Backup XLSX
-                </a>
-              )}
-            </div>
+            <button type="submit" disabled={creatingEntity || !token} className="min-h-11 bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+              {creatingEntity ? 'Creazione…' : 'Crea entità'}
+            </button>
             {entitiesLoading && <p className="text-sm text-stone-500" role="status">Caricamento entità…</p>}
           </div>
         </form>
@@ -219,7 +208,8 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
       </section>
       <form onSubmit={(event) => void handleSubmit(event)} className="space-y-6">
         <section className="border border-stone-200 bg-white p-5">
-          <h2 className="mb-4 font-semibold text-stone-900">I tuoi dati dell’emittente</h2>
+          <h2 className="font-semibold text-stone-900">Dati fiscali dell’attività</h2>
+          <p className="mb-4 mt-1 text-sm text-stone-600">Sono i dati della persona o dell’attività che emette fatture e registra i movimenti.</p>
           <div className="grid gap-4 sm:grid-cols-2">
             {identityFields.map((field) => (
               <label key={field.key} className="block text-sm text-stone-700">
@@ -242,8 +232,8 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
         </section>
 
         <section className="border border-stone-200 bg-white p-5">
-          <h2 className="mb-2 font-semibold text-stone-900">La tua mappatura contabile</h2>
-          <p className="mb-4 text-sm text-stone-600">I nomi devono corrispondere al piano dei conti aziendale. Il server li userà per generare la scrittura all’emissione.</p>
+          <h2 className="mb-2 font-semibold text-stone-900">Conti usati nelle registrazioni</h2>
+          <p className="mb-4 text-sm text-stone-600">Inserisci i nomi esatti presenti nel piano dei conti. L’app li usa per preparare fatture e scritture automatiche.</p>
           <div className="grid gap-4 sm:grid-cols-2">
             {accountFields.map((field) => (
               <label key={field.key} className="block text-sm text-stone-700">
@@ -269,7 +259,8 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
         <div className="flex items-center justify-end gap-4">
           {saveError && <p className="text-sm text-rose-700" role="alert">{saveError}</p>}
           {saved && <p className="text-sm text-emerald-800" role="status">Impostazioni salvate nella scheda Impostazioni su Google Drive.</p>}
-          <button type="submit" disabled={profileStatus !== 'ready' || savingProfile || !token || !activeSpreadsheetId} className="min-h-11 bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+          {!saved && hasChanges && profileStatus === 'ready' && <p className="text-sm text-amber-700">Modifiche non salvate</p>}
+          <button type="submit" disabled={profileStatus !== 'ready' || savingProfile || !token || !activeSpreadsheetId || (!hasChanges && !saved)} className="min-h-11 bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
             {savingProfile ? 'Salvataggio…' : 'Salva impostazioni'}
           </button>
         </div>

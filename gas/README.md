@@ -102,8 +102,11 @@ La risposta del deployment è leggibile dal browser dopo il redirect GAS.
 
 Il deployment deve includere le azioni JSON `login`, `getEntities`,
 `createNewEntity`, `getWorkspaceSetupStatus`, `initializeWorkspace`,
-`getTransactions`, `getTransactionHistory`, `appendTransaction`, `getInvoices`
-e `issueInvoice` implementate in `API.js`.
+`getCompanyProfile`, `saveCompanyProfile`, `getTransactions`,
+`getTransactionHistory`, `appendTransaction`, `getInvoices`, `getCustomers`,
+`saveCustomer`, `getCreditNotes`, `issueCreditNote`, `getSuppliers`,
+`saveSupplier`, `getExpenses`, `issueExpense` e `issueInvoice` implementate
+in `API.js`.
 
 Le API contabili ricevono `spreadsheetId` (ID del file movimenti) per instradare
 le registrazioni al tab dell'anno richiesto. Le letture e scritture di anagrafiche,

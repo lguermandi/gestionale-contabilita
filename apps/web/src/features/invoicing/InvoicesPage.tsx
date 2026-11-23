@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCompanyProfile, saveCustomer } from '../../api/ledgerApi'
+import { archiveInvoice, fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCompanyProfile, saveCustomer } from '../../api/ledgerApi'
 import {
   calculateInvoiceTotals,
   validateInvoice,
@@ -15,8 +15,8 @@ import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
-import { downloadInvoicePdf } from './invoicePdf'
-import { downloadFatturaPaXml } from './fatturaPaXml'
+import { createInvoicePdf, downloadInvoicePdf } from './invoicePdf'
+import { buildFatturaPaXml, downloadFatturaPaXml } from './fatturaPaXml'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -27,6 +27,16 @@ function createId() {
     const random = Math.floor(Math.random() * 16)
     return (character === 'x' ? random : (random & 0x3) | 0x8).toString(16)
   })
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
 }
 
 function currentDate(year: number) {
@@ -327,7 +337,23 @@ export function InvoicesPage({ year }: { year: number }) {
     setSaving(true)
     try {
       const invoice = await issueInvoice(token, draft, spreadsheetId || undefined)
-      setInvoices((current) => [invoice, ...current.filter((item) => item.id !== invoice.id)])
+      let archivedInvoice = invoice
+      try {
+        const pdf = createInvoicePdf(invoice, company).output('arraybuffer') as ArrayBuffer
+        const xml = buildFatturaPaXml(invoice, company)
+        archivedInvoice = await archiveInvoice(
+          token,
+          invoice,
+          arrayBufferToBase64(pdf),
+          xml,
+          spreadsheetId || undefined,
+        )
+      } catch (archiveError) {
+        setMessage(archiveError instanceof Error
+          ? `Fattura emessa, ma archiviazione Drive non riuscita: ${archiveError.message}`
+          : 'Fattura emessa, ma archiviazione Drive non riuscita.')
+      }
+      setInvoices((current) => [archivedInvoice, ...current.filter((item) => item.id !== archivedInvoice.id)])
       setInvoiceScope(`${year}:${token}:${spreadsheetId}`)
       void refreshLedger(year, token, 'business', spreadsheetId)
       let profileSaveError = ''
@@ -506,6 +532,9 @@ export function InvoicesPage({ year }: { year: number }) {
                         <div className="flex justify-end gap-3">
                           <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
                           <button className="font-medium text-indigo-700 underline" type="button" onClick={() => handleXml(invoice)}>XML</button>
+                          {invoice.archivio?.folderUrl && (
+                            <a className="font-medium text-stone-600 underline" href={invoice.archivio.folderUrl} target="_blank" rel="noreferrer">Drive</a>
+                          )}
                         </div>
                       </td>
                     </tr>

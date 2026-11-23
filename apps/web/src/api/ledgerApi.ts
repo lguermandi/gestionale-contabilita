@@ -239,3 +239,20 @@ export function issueInvoice(token: string, invoice: InvoiceDraft, spreadsheetId
     ...(spreadsheetId ? { spreadsheetId } : {}),
   })
 }
+
+export function archiveInvoice(
+  token: string,
+  invoice: IssuedInvoice,
+  pdfBase64: string,
+  xmlText: string,
+  spreadsheetId?: string,
+) {
+  return requestGas<IssuedInvoice>({
+    action: 'archiveInvoice',
+    token,
+    invoice,
+    pdfBase64,
+    xmlText,
+    ...(spreadsheetId ? { spreadsheetId } : {}),
+  })
+}

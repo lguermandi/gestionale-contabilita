@@ -101,6 +101,16 @@ export interface IssuedInvoice extends InvoiceDraft {
   stato: 'emessa'
   totali: InvoiceTotals
   duplicate?: boolean
+  archivio?: InvoiceArchive
+}
+
+export interface InvoiceArchive {
+  folderUrl: string
+  pdfUrl: string
+  xmlUrl: string
+  pdfId: string
+  xmlId: string
+  dataArchiviazione: string
 }
 
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)

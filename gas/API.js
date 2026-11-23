@@ -57,6 +57,8 @@ function doPost(event) {
       data = issueExpense_(payload.token, payload.expense, payload.spreadsheetId);
     } else if (payload.action === 'issueInvoice') {
       data = issueInvoice_(payload.token, payload.invoice, payload.spreadsheetId);
+    } else if (payload.action === 'archiveInvoice') {
+      data = archiveInvoice_(payload.token, payload.invoice, payload.pdfBase64, payload.xmlText, payload.spreadsheetId);
     } else {
       return jsonResponse_({ status: 400, error: 'Azione non supportata.' });
     }
@@ -989,6 +991,103 @@ function issueInvoice_(token, source, spreadsheetId) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function archiveInvoice_(token, sourceInvoice, pdfBase64, xmlText, spreadsheetId) {
+  requireSession_(token);
+  const invoice = normalizeInvoice_(sourceInvoice);
+  if (!sourceInvoice.numero || sourceInvoice.stato !== 'emessa') {
+    throw new Error('Solo una fattura emessa può essere archiviata.');
+  }
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(String(pdfBase64 || ''))) {
+    throw new Error('Contenuto PDF non valido.');
+  }
+  if (!xmlText || !/^<\?xml/.test(String(xmlText))) {
+    throw new Error('Contenuto XML non valido.');
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    let entityFolder;
+    if (spreadsheetId) {
+      const entity = getEntityRecordBySpreadsheetId_(spreadsheetId);
+      if (!entity.folderId) throw new Error('Cartella dell’entità non configurata.');
+      entityFolder = DriveApp.getFolderById(entity.folderId);
+    } else {
+      const session = requireSession_(token);
+      if (!session.user.rootFolderId) throw new Error('Cartella workspace non configurata.');
+      entityFolder = DriveApp.getFolderById(session.user.rootFolderId);
+    }
+
+    const year = String(invoice.data || '').slice(0, 4);
+    if (!/^\d{4}$/.test(year)) throw new Error('Anno fattura non valido.');
+    const invoicesRoot = getOrCreateNamedFolder_(entityFolder, 'Fatture emesse');
+    const yearFolder = getOrCreateNamedFolder_(invoicesRoot, year);
+    const pdfFolder = getOrCreateNamedFolder_(yearFolder, 'PDF');
+    const xmlFolder = getOrCreateNamedFolder_(yearFolder, 'XML');
+
+    const baseName = String(sourceInvoice.numero).replace(/[\/\\]/g, '-');
+    const pdfName = 'Fattura-' + baseName + '.pdf';
+    const xmlName = 'Fattura-' + baseName + '.xml';
+
+    const pdfBlob = Utilities.newBlob(
+      Utilities.base64Decode(String(pdfBase64)),
+      'application/pdf',
+      pdfName
+    );
+    const xmlBlob = Utilities.newBlob(String(xmlText), 'application/xml', xmlName);
+
+    removeNamedFile_(pdfFolder, pdfName);
+    removeNamedFile_(xmlFolder, xmlName);
+    const pdfFile = pdfFolder.createFile(pdfBlob);
+    const xmlFile = xmlFolder.createFile(xmlBlob);
+
+    const archive = {
+      folderUrl: yearFolder.getUrl(),
+      pdfUrl: pdfFile.getUrl(),
+      xmlUrl: xmlFile.getUrl(),
+      pdfId: pdfFile.getId(),
+      xmlId: xmlFile.getId(),
+      dataArchiviazione: new Date().toISOString()
+    };
+
+    const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+    const invoiceSheet = spreadsheet && spreadsheet.getSheetByName('Fatture');
+    if (invoiceSheet) {
+      const rowIndex = findInvoiceRow_(invoiceSheet, invoice.id);
+      if (rowIndex) {
+        const issued = JSON.parse(invoiceSheet.getRange(rowIndex, 8).getValue());
+        issued.archivio = archive;
+        invoiceSheet.getRange(rowIndex, 6, 1, 3).setValues([[
+          issued.totali.totale,
+          'emessa',
+          JSON.stringify(issued)
+        ]]);
+        SpreadsheetApp.flush();
+        return issued;
+      }
+    }
+    return Object.assign({}, invoice, {
+      numero: sourceInvoice.numero,
+      stato: 'emessa',
+      totali: calculateInvoiceTotals_(invoice),
+      archivio: archive
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getOrCreateNamedFolder_(parent, name) {
+  const folders = parent.getFoldersByName(name);
+  if (folders.hasNext()) return folders.next();
+  return parent.createFolder(name);
+}
+
+function removeNamedFile_(folder, name) {
+  const files = folder.getFilesByName(name);
+  while (files.hasNext()) files.next().setTrashed(true);
 }
 
 function normalizeInvoice_(source) {

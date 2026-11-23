@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildInvoicePosting, calculateInvoiceTotals, validateInvoice, type InvoiceDraft, type IssuedInvoice } from './invoicing'
 import { createInvoicePdf } from '../features/invoicing/invoicePdf'
+import { buildFatturaPaXml, validateFatturaPaXml } from '../features/invoicing/fatturaPaXml'
 
 const invoiceDraft: InvoiceDraft = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -113,5 +114,46 @@ describe('motore fatturazione', () => {
 
     expect(signature).toBe('%PDF-')
     expect(pdf.byteLength).toBeGreaterThan(1000)
+  })
+
+  it('genera XML FatturaPA con intestazione, riga, riepilogo IVA e bollo', () => {
+    const invoice: IssuedInvoice = {
+      ...invoiceDraft,
+      cliente: {
+        ...invoiceDraft.cliente,
+        indirizzo: 'Via Roma 1',
+        comune: 'Milano',
+        provincia: 'MI',
+        cap: '20100',
+        nazione: 'Italia',
+      },
+      tipoDocumento: 'TD01',
+      divisa: 'EUR',
+      numero: '2026/0001',
+      stato: 'emessa',
+      totali: calculateInvoiceTotals(invoiceDraft),
+    }
+    const company = {
+      ragioneSociale: 'Studio Demo S.r.l.',
+      indirizzo: 'Via Roma 1',
+      comune: 'Milano',
+      provincia: 'MI',
+      cap: '20100',
+      nazione: 'IT',
+      partitaIva: '12345678901',
+      codiceFiscale: 'RSSMRA80A01F205Z',
+      regimeFiscale: 'RF01',
+      email: '',
+      pec: 'studio@pec.it',
+      codiceDestinatario: '0000000',
+      telefono: '',
+      conti: invoiceDraft.conti,
+    }
+    const xml = buildFatturaPaXml(invoice, company)
+    expect(xml).toContain('<FatturaElettronica')
+    expect(xml).toContain('<TipoDocumento>TD01</TipoDocumento>')
+    expect(xml).toContain('<AliquotaIVA>22.00</AliquotaIVA>')
+    expect(xml).toContain('<NumeroLinea>1</NumeroLinea>')
+    expect(validateFatturaPaXml(invoice, company)).toEqual([])
   })
 })

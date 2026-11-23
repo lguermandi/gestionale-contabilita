@@ -13,6 +13,17 @@ export interface CompanyProfile {
     pec: string
     codiceDestinatario: string
     telefono: string
+    regimeFiscale?: string
+    cap?: string
+    comune?: string
+    provincia?: string
+    nazione?: string
+    codiceRea?: string
+    codiceReaNumero?: string
+    statoUfficio?: string
+    capitaleSociale?: string
+    socioUnico?: '' | 'SU' | 'SM'
+    liquidazione?: '' | 'LS' | 'LN'
     conti: InvoiceAccounts
 }
 
@@ -25,6 +36,11 @@ export const defaultCompanyProfile: CompanyProfile = {
     pec: '',
     codiceDestinatario: '',
     telefono: '',
+    regimeFiscale: 'RF01',
+    cap: '',
+    comune: '',
+    provincia: '',
+    nazione: 'IT',
     conti: {
         clienti: 'Crediti v/clienti',
         ricavi: 'Ricavi da servizi',

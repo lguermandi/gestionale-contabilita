@@ -4,6 +4,8 @@ export interface InvoiceLine {
   quantita: number
   prezzoUnitario: number
   aliquotaIva?: number
+  naturaIva?: string
+  riferimentoAmministrazione?: string
 }
 
 export interface InvoiceAccounts {
@@ -28,6 +30,9 @@ export interface InvoiceCustomer {
   email: string
   codiceFiscale?: string
   nazione?: string
+  provincia?: string
+  codiceDestinatario?: string
+  pec?: string
   tipologia?: string
   cap?: string
   comune?: string
@@ -64,6 +69,11 @@ export interface IssuedCreditNote extends CreditNoteDraft {
 export interface InvoiceDraft {
   id: string
   data: string
+  tipoDocumento?: 'TD01' | 'TD02' | 'TD03' | 'TD04' | 'TD05' | 'TD06' | 'TD07' | 'TD08' | 'TD09' | 'TD10' | 'TD16' | 'TD17' | 'TD18' | 'TD19' | 'TD20' | 'TD21' | 'TD22' | 'TD23' | 'TD24' | 'TD25' | 'TD26' | 'TD27' | 'TD28' | 'TD29'
+  dataRicezione?: string
+  numeroDocumento?: string
+  causale?: string
+  divisa?: string
   cliente: InvoiceCustomer
   linee: InvoiceLine[]
   aliquotaIva: number

@@ -78,6 +78,17 @@ const COMPANY_PROFILE_FIELDS_ = [
   'pec',
   'codiceDestinatario',
   'telefono',
+  'regimeFiscale',
+  'cap',
+  'comune',
+  'provincia',
+  'nazione',
+  'codiceRea',
+  'codiceReaNumero',
+  'statoUfficio',
+  'capitaleSociale',
+  'socioUnico',
+  'liquidazione',
 ];
 const COMPANY_PROFILE_ACCOUNT_FIELDS_ = [
   'clienti',
@@ -377,6 +388,9 @@ function normalizeCustomer_(source) {
     codiceFiscale: sanitizeString_(customer.codiceFiscale),
     email: sanitizeString_(customer.email),
     nazione: sanitizeString_(customer.nazione) || 'Italia',
+    provincia: sanitizeString_(customer.provincia),
+    codiceDestinatario: sanitizeString_(customer.codiceDestinatario),
+    pec: sanitizeString_(customer.pec),
     tipologia: sanitizeString_(customer.tipologia),
     cap: sanitizeString_(customer.cap),
     comune: sanitizeString_(customer.comune),
@@ -962,6 +976,9 @@ function normalizeInvoice_(source) {
     email: sanitizeString_(customer.email),
     codiceFiscale: sanitizeString_(customer.codiceFiscale),
     nazione: sanitizeString_(customer.nazione) || 'Italia',
+    provincia: sanitizeString_(customer.provincia),
+    codiceDestinatario: sanitizeString_(customer.codiceDestinatario),
+    pec: sanitizeString_(customer.pec),
     tipologia: sanitizeString_(customer.tipologia),
     cap: sanitizeString_(customer.cap),
     comune: sanitizeString_(customer.comune),
@@ -983,7 +1000,15 @@ function normalizeInvoice_(source) {
       throw new Error('Voce fattura non valida.');
     }
     if (!isFinite(aliquotaIva) || aliquotaIva < 0 || aliquotaIva > 100) throw new Error('Aliquota IVA fattura non valida.');
-    return { id: String(line.id || ''), descrizione, quantita, prezzoUnitario, aliquotaIva };
+    return {
+      id: String(line.id || ''),
+      descrizione,
+      quantita,
+      prezzoUnitario,
+      aliquotaIva,
+      naturaIva: sanitizeString_(line.naturaIva),
+      riferimentoAmministrazione: sanitizeString_(line.riferimentoAmministrazione)
+    };
   });
 
   const rates = {
@@ -1034,6 +1059,11 @@ function normalizeInvoice_(source) {
 
   const normalized = {
     id: String(invoice.id), data: date, cliente, linee,
+    tipoDocumento: sanitizeString_(invoice.tipoDocumento) || 'TD01',
+    dataRicezione: sanitizeString_(invoice.dataRicezione),
+    numeroDocumento: sanitizeString_(invoice.numeroDocumento),
+    causale: sanitizeString_(invoice.causale),
+    divisa: sanitizeString_(invoice.divisa) || 'EUR',
     aliquotaIva: rates.aliquotaIva,
     aliquotaCassa: rates.aliquotaCassa,
     aliquotaRitenuta: rates.aliquotaRitenuta,

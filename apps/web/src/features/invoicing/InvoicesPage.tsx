@@ -16,6 +16,7 @@ import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { downloadInvoicePdf } from './invoicePdf'
+import { downloadFatturaPaXml } from './fatturaPaXml'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -365,6 +366,15 @@ export function InvoicesPage({ year }: { year: number }) {
     }
   }
 
+  function handleXml(invoice: IssuedInvoice) {
+    try {
+      downloadFatturaPaXml(invoice, company)
+      setMessage(`XML FatturaPA ${invoice.numero} generato.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Impossibile generare l’XML FatturaPA.')
+    }
+  }
+
   function downloadSelectedInvoices() {
     const selected = visibleInvoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id))
     if (!selected.length) return
@@ -492,7 +502,12 @@ export function InvoicesPage({ year }: { year: number }) {
                       <td className="px-4 py-4">{new Date(`${invoice.data}T00:00:00`).toLocaleDateString('it-IT')}</td>
                       <td className="px-4 py-4"><span className={`inline-flex px-2 py-1 text-xs font-medium ${invoice.pagamento?.incassata ? 'bg-emerald-100 text-emerald-900' : overdue ? 'bg-rose-100 text-rose-900' : 'bg-amber-100 text-amber-900'}`}>{invoice.pagamento?.incassata ? 'Incassata' : overdue ? 'Scaduta' : 'Da incassare'}</span></td>
                       <td className="px-4 py-4">{invoice.pagamento?.scadenza ? new Date(`${invoice.pagamento.scadenza}T00:00:00`).toLocaleDateString('it-IT') : '—'}</td>
-                      <td className="px-4 py-4 text-right"><button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button></td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="flex justify-end gap-3">
+                          <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
+                          <button className="font-medium text-indigo-700 underline" type="button" onClick={() => handleXml(invoice)}>XML</button>
+                        </div>
+                      </td>
                     </tr>
                   )
                 })}

@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core'
 import { BrowserRouter, HashRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { buildAccountingReportsForYear } from './domain/accounting'
 import { OfflineSyncController } from './offline/OfflineSyncController'
-import { getWorkspaceSetupStatus, initializeWorkspace, loginToGas, logoutFromGas } from './api/ledgerApi'
+import { getCompanyProfile, getWorkspaceSetupStatus, initializeWorkspace, loginToGas, logoutFromGas, saveCompanyProfile } from './api/ledgerApi'
 import {
   chooseGoogleDriveDestination,
   createWorkspaceDriveFolder,
@@ -17,7 +17,7 @@ import { useGasSessionStore } from './stores/gasSessionStore'
 import { useEntityStore } from './stores/entityStore'
 import { useLedgerStore } from './stores/ledgerStore'
 import { useOfflineSyncStore } from './stores/offlineSyncStore'
-import { useProfileStore } from './stores/profileStore'
+import { defaultCompanyProfile, hasCustomCompanyProfile, useProfileStore } from './stores/profileStore'
 
 const navigation = [
   { label: 'Dashboard', to: '/' },
@@ -359,6 +359,10 @@ function AppShell() {
   const syncing = useOfflineSyncStore((state) => state.syncing)
   const pending = useOfflineSyncStore((state) => state.pending)
   const token = useGasSessionStore((state) => state.token)
+  const clearToken = useGasSessionStore((state) => state.clearToken)
+  const setCompanyProfileForSpreadsheet = useProfileStore((state) => state.setCompanyProfileForSpreadsheet)
+  const setCompanyProfileStatus = useProfileStore((state) => state.setCompanyProfileStatus)
+  const [profileRetryCount, setProfileRetryCount] = useState(0)
   const reports = useMemo(
     () => buildAccountingReportsForYear([...historyTransactions, ...transactions], year),
     [historyTransactions, transactions, year],
@@ -372,6 +376,42 @@ function AppShell() {
     if (token) void loadEntities(token)
     else clearEntities()
   }, [clearEntities, loadEntities, token])
+
+  useEffect(() => {
+    if (!token || !activeSpreadsheetId) {
+      setCompanyProfileStatus('idle')
+      return
+    }
+
+    let active = true
+    setCompanyProfileStatus('loading')
+    void (async () => {
+      try {
+        const { profile } = await getCompanyProfile(token, activeSpreadsheetId)
+        if (!active) return
+        if (profile) {
+          setCompanyProfileForSpreadsheet(profile, activeSpreadsheetId)
+          return
+        }
+
+        const previous = useProfileStore.getState()
+        const migrateLocalProfile = previous.companyProfileSpreadsheetId === null
+          && hasCustomCompanyProfile(previous.companyProfile)
+        if (migrateLocalProfile) {
+          const migratedProfile = await saveCompanyProfile(token, previous.companyProfile, activeSpreadsheetId)
+          if (active) setCompanyProfileForSpreadsheet(migratedProfile, activeSpreadsheetId, true)
+        } else {
+          setCompanyProfileForSpreadsheet(defaultCompanyProfile, activeSpreadsheetId)
+        }
+      } catch (error) {
+        if (!active) return
+        const message = error instanceof Error ? error.message : 'Impossibile caricare le impostazioni da Google Drive.'
+        setCompanyProfileStatus('error', message)
+        if (message.includes('SESSION_EXPIRED')) clearToken()
+      }
+    })()
+    return () => { active = false }
+  }, [activeSpreadsheetId, clearToken, profileRetryCount, setCompanyProfileForSpreadsheet, setCompanyProfileStatus, token])
 
   useEffect(() => {
     void refresh(year, token, activeProfile, activeSpreadsheetId)
@@ -445,7 +485,7 @@ function AppShell() {
             <Route path="/analisi" element={<PrivateOnly><HistoricalAnalysisPage /></PrivateOnly>} />
             <Route path="/fatturazione" element={<BusinessOnly><InvoicesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/spese" element={<BusinessOnly><ExpensesPage key={year} year={year} /></BusinessOnly>} />
-            <Route path="/impostazioni" element={<CompanySettingsPage />} />
+            <Route path="/impostazioni" element={<CompanySettingsPage onRetryProfileLoad={() => setProfileRetryCount((count) => count + 1)} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

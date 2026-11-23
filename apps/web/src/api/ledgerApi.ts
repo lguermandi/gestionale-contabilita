@@ -1,6 +1,7 @@
 import type { LedgerTransaction } from '../domain/accounting'
 import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft, IssuedCreditNote, IssuedInvoice } from '../domain/invoicing'
 import type { ExpenseDraft, IssuedExpense } from '../domain/expenses'
+import type { CompanyProfile } from '../stores/profileStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   || 'https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec'
@@ -16,6 +17,7 @@ export interface AccountingEntity {
   nomeEntita: string
   tipologia: 'Privato' | 'Azienda'
   folderId: string
+  structureSpreadsheetId: string
   spreadsheetId: string
 }
 
@@ -113,6 +115,23 @@ export function createAccountingEntity(token: string, datiEntita: NewAccountingE
     action: 'createNewEntity',
     token,
     datiEntita,
+  })
+}
+
+export function getCompanyProfile(token: string, spreadsheetId: string) {
+  return requestGas<{ profile: CompanyProfile | null }>({
+    action: 'getCompanyProfile',
+    token,
+    spreadsheetId,
+  })
+}
+
+export function saveCompanyProfile(token: string, profile: CompanyProfile, spreadsheetId: string) {
+  return requestGas<CompanyProfile>({
+    action: 'saveCompanyProfile',
+    token,
+    profile,
+    spreadsheetId,
   })
 }
 

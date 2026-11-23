@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCustomer } from '../../api/ledgerApi'
+import { fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCompanyProfile, saveCustomer } from '../../api/ledgerApi'
 import {
   calculateInvoiceTotals,
   validateInvoice,
@@ -81,7 +81,7 @@ export function InvoicesPage({ year }: { year: number }) {
   const spreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
   const refreshLedger = useLedgerStore((state) => state.refresh)
   const company = useProfileStore((state) => state.companyProfile)
-  const setCompanyProfile = useProfileStore((state) => state.setCompanyProfile)
+  const setCompanyProfileForSpreadsheet = useProfileStore((state) => state.setCompanyProfileForSpreadsheet)
   const [draft, setDraft] = useState(() => newDraft(year, company.conti))
   const [invoices, setInvoices] = useState<IssuedInvoice[]>([])
   const [customers, setCustomers] = useState<InvoiceCustomer[]>([])
@@ -329,12 +329,22 @@ export function InvoicesPage({ year }: { year: number }) {
       setInvoices((current) => [invoice, ...current.filter((item) => item.id !== invoice.id)])
       setInvoiceScope(`${year}:${token}:${spreadsheetId}`)
       void refreshLedger(year, token, 'business', spreadsheetId)
-      setCompanyProfile({ ...company, conti: draft.conti })
+      let profileSaveError = ''
+      try {
+        const savedProfile = await saveCompanyProfile(token, { ...company, conti: draft.conti }, spreadsheetId)
+        setCompanyProfileForSpreadsheet(savedProfile, spreadsheetId)
+      } catch (profileError) {
+        profileSaveError = profileError instanceof Error ? profileError.message : 'Impossibile salvare la mappatura contabile su Google Drive.'
+      }
       try {
         downloadInvoicePdf(invoice, company)
-        setMessage(`Fattura ${invoice.numero} emessa e PDF scaricato.`)
+        setMessage(profileSaveError
+          ? `Fattura ${invoice.numero} emessa e PDF scaricato, ma le impostazioni non sono state aggiornate su Drive: ${profileSaveError}`
+          : `Fattura ${invoice.numero} emessa e PDF scaricato.`)
       } catch {
-        setMessage(`Fattura ${invoice.numero} emessa; il PDF può essere scaricato dallo storico.`)
+        setMessage(profileSaveError
+          ? `Fattura ${invoice.numero} emessa, ma PDF e aggiornamento impostazioni non sono riusciti. ${profileSaveError}`
+          : `Fattura ${invoice.numero} emessa; il PDF può essere scaricato dallo storico.`)
       }
       setDraft(newDraft(year, draft.conti))
       setErrors([])

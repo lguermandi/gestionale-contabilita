@@ -334,7 +334,7 @@ function ScalarIncomeStatement({ statement }: { statement: IncomeStatement }) {
                     <td className="whitespace-nowrap px-5 py-2 text-right tabular-nums text-stone-700">{euro.format(row.side === 'positive' ? row.importo : -row.importo)}</td>
                   </tr>
                 ))}
-                <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                <tr className="h-9 border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
                   <td className="px-5 py-2">Totale {item.code && `${item.code}. `}{item.title.toLowerCase()}</td>
                   <td className="px-5 py-2 text-right tabular-nums">{euro.format(item.total)}</td>
                 </tr>
@@ -455,13 +455,13 @@ function ScalarBalanceSheet({
         </thead>
         <tbody>
           <BalanceSectionsRows title="Attività · Impieghi" sections={activitySections} side="activity" previousReady={previousReady} />
-          <tr className="border-t border-stone-200 bg-amber-50 font-semibold text-stone-800">
+          <tr className="h-9 border-t border-stone-200 bg-amber-50 font-semibold text-stone-800">
             <td className="px-5 py-2.5">Totale attività</td>
             <td className="px-2 py-2.5 text-right tabular-nums">{balanceAmount(totalActivity)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums">{previousReady ? balanceAmount(previousActivity) : '—'}</td>
           </tr>
           <BalanceSectionsRows title="Passività · Fonti di finanziamento" sections={liabilitySections} side="liability" previousReady={previousReady} />
-          <tr className="border-t border-stone-200 bg-sky-50 font-semibold text-stone-800">
+          <tr className="h-9 border-t border-stone-200 bg-sky-50 font-semibold text-stone-800">
             <td className="px-5 py-2.5">Totale passività</td>
             <td className="px-2 py-2.5 text-right tabular-nums">{balanceAmount(totalLiability)}</td>
             <td className="px-3 py-2.5 text-right tabular-nums">{previousReady ? balanceAmount(previousLiability) : '—'}</td>
@@ -486,34 +486,41 @@ function BalanceSectionsRows({
   const headingColor = side === 'activity' ? 'bg-amber-100' : 'bg-sky-100'
   return (
     <>
-      <tr className={headingColor}>
+      <tr className={`h-9 ${headingColor}`}>
         <th colSpan={3} className="px-5 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-800">{title}</th>
       </tr>
       {sections.map((section) => (
         <Fragment key={section.code}>
-          <tr className={`border-y border-stone-300 ${headingColor}`}>
+          <tr className={`h-9 border-y border-stone-300 ${headingColor}`}>
             <th colSpan={3} className="px-5 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-700">{section.code} {section.title}</th>
           </tr>
           {section.subsections.map((subsection) => (
             <Fragment key={subsection.code}>
               {(subsection.code || subsection.title) && (
-                <tr className="border-b border-stone-200 bg-stone-50">
+                <tr className="h-9 border-b border-stone-200 bg-stone-50">
                   <th colSpan={3} className="px-5 py-2 text-left text-xs font-semibold text-stone-700">
                     {subsection.code && <span className="mr-2 text-stone-500">{subsection.code}</span>}{subsection.title}
                   </th>
                 </tr>
               )}
               {subsection.rows.map((row) => (
-                <tr key={row.conto} className="border-b border-dotted border-stone-300">
+                <tr key={row.conto} className="h-9 border-b border-dotted border-stone-300">
                   <td className="break-words px-5 py-2 text-stone-700">{row.conto}</td>
                   <td className="px-2 py-2 text-right tabular-nums text-stone-800">{balanceAmount(row.corrente)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-stone-500">{previousReady ? balanceAmount(row.precedente) : '—'}</td>
                 </tr>
               ))}
+                  {subsection.rows.length > 0 && subsection.title && (
+                    <tr className="h-9 border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                      <td className="px-5 py-2">Totale {subsection.title.toLowerCase()}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(subsection.rows, 'corrente'))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(subsection.rows, 'precedente')) : '—'}</td>
+                    </tr>
+                  )}
             </Fragment>
           ))}
           {section.subsections.some((subsection) => subsection.rows.length > 0) && (
-            <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+            <tr className="h-9 border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
               <td className="px-5 py-2">Totale {section.title.toLowerCase()}</td>
               <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'corrente'))}</td>
               <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'precedente')) : '—'}</td>
@@ -550,6 +557,13 @@ function createReportExportData(
         section.subsections.forEach((subsection) => {
           if (subsection.code || subsection.title) rows.push([`${subsection.code} ${subsection.title}`.trim(), '', ''])
           subsection.rows.forEach((row) => rows.push([row.conto, balanceAmount(row.corrente), previousReady ? balanceAmount(row.precedente) : '—']))
+          if (subsection.rows.length > 0 && subsection.title) {
+            rows.push([
+              `Totale ${subsection.title.toLowerCase()}`,
+              balanceAmount(sumRows(subsection.rows, 'corrente')),
+              previousReady ? balanceAmount(sumRows(subsection.rows, 'precedente')) : '—',
+            ])
+          }
         })
         if (section.subsections.some((subsection) => subsection.rows.length > 0)) {
           const sectionRows = section.subsections.flatMap((subsection) => subsection.rows)
@@ -629,13 +643,13 @@ function BalanceSide({
 }) {
   const headingColor = side === 'activity' ? 'bg-amber-100' : 'bg-sky-100'
   return (
-    <section className={`flex flex-col ${side === 'liability' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
+    <section className={`flex min-h-full flex-col ${side === 'liability' ? 'border-t border-stone-200 lg:border-l lg:border-t-0' : ''}`}>
       <header className={`border-b border-stone-300 px-4 py-3 sm:px-5 ${headingColor}`}>
         <div>
           <h3 className="text-center text-xs font-bold uppercase tracking-wider text-stone-900">{title}</h3>
         </div>
       </header>
-      <div className="flex-1 overflow-x-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto">
         <table className="h-full w-full min-w-[500px] table-fixed text-sm">
           <colgroup><col className="w-[50%]" /><col className="w-[25%]" /><col className="w-[25%]" /></colgroup>
           <thead className="border-b border-stone-200 bg-white text-[11px] uppercase tracking-wide text-stone-500">
@@ -647,7 +661,7 @@ function BalanceSide({
           </thead>
           {sections.map((section) => (
             <tbody key={section.code}>
-              <tr className={`border-y border-stone-300 ${headingColor}`}>
+              <tr className={`h-9 border-y border-stone-300 ${headingColor}`}>
                 <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wide text-stone-700 sm:px-5" colSpan={3}>
                   <span className="mr-2">{section.code}</span>{section.title}
                 </th>
@@ -655,23 +669,30 @@ function BalanceSide({
               {section.subsections.map((subsection) => (
                 <Fragment key={subsection.code}>
                   {(subsection.code || subsection.title) && (
-                    <tr className="border-b border-stone-200 bg-stone-50">
+                    <tr className="h-9 border-b border-stone-200 bg-stone-50">
                       <th className="px-4 py-2 text-left text-xs font-semibold text-stone-700 sm:px-5" colSpan={3}>
                         {subsection.code && <span className="mr-2 text-stone-500">{subsection.code}</span>}{subsection.title}
                       </th>
                     </tr>
                   )}
                   {subsection.rows.map((row) => (
-                    <tr key={row.conto} className="border-b border-dotted border-stone-300 hover:bg-stone-50">
+                    <tr key={row.conto} className="h-9 border-b border-dotted border-stone-300 hover:bg-stone-50">
                       <td className="break-words px-4 py-2 text-stone-700 sm:px-5">{row.conto}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-stone-800">{balanceAmount(row.corrente)}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-stone-500">{previousReady ? balanceAmount(row.precedente) : '—'}</td>
                     </tr>
                   ))}
+                  {subsection.rows.length > 0 && subsection.title && (
+                    <tr className="h-9 border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                      <td className="px-4 py-2 sm:px-5">Totale {subsection.title.toLowerCase()}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(subsection.rows, 'corrente'))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(subsection.rows, 'precedente')) : '—'}</td>
+                    </tr>
+                  )}
                 </Fragment>
               ))}
               {section.subsections.some((subsection) => subsection.rows.length > 0) && (
-                <tr className="border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
+                <tr className="h-9 border-b border-stone-200 bg-stone-50/70 text-xs font-semibold text-stone-600">
                   <td className="px-4 py-2 sm:px-5">Totale {section.title.toLowerCase()}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'corrente'))}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{previousReady ? balanceAmount(sumRows(section.subsections.flatMap((subsection) => subsection.rows), 'precedente')) : '—'}</td>
@@ -679,15 +700,18 @@ function BalanceSide({
               )}
             </tbody>
           ))}
-          <tfoot className="border-t-2 border-orange-400 bg-orange-100 text-sm font-bold text-stone-900">
-            <tr>
-              <td className="px-4 py-3 sm:px-5">Totale {side === 'activity' ? 'attività' : 'passività'}</td>
-              <td className="px-2 py-3 text-right tabular-nums">{balanceAmount(total)}</td>
-              <td className="px-3 py-3 text-right tabular-nums">{previousReady && previousTotal !== null ? balanceAmount(previousTotal) : '—'}</td>
-            </tr>
-          </tfoot>
         </table>
       </div>
+      <table className="w-full table-fixed border-t-2 border-orange-400 bg-orange-100 text-sm font-bold text-stone-900">
+        <colgroup><col className="w-[50%]" /><col className="w-[25%]" /><col className="w-[25%]" /></colgroup>
+        <tbody>
+          <tr className="h-12">
+            <td className="px-4 py-3 sm:px-5">Totale {side === 'activity' ? 'attività' : 'passività'}</td>
+            <td className="px-2 py-3 text-right tabular-nums">{balanceAmount(total)}</td>
+            <td className="px-3 py-3 text-right tabular-nums">{previousReady && previousTotal !== null ? balanceAmount(previousTotal) : '—'}</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
   )
 }

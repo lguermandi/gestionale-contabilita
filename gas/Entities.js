@@ -12,6 +12,7 @@ const ENTITY_INDEX_HEADERS_ = [
 ];
 const ENTITY_STRUCTURE_SHEETS_ = [
   { name: 'Anagrafica', headers: ['Codice_Fiscale', 'Partita_IVA', 'Regime'] },
+  { name: 'Impostazioni', headers: ['Campo', 'Valore'] },
   { name: 'Piano_Conti', headers: ['Codice', 'Descrizione', 'Tipo', 'Gestione', 'Attivo'] },
   {
     name: 'Fatture',

@@ -24,6 +24,10 @@ function doPost(event) {
     } else if (payload.action === 'createNewEntity') {
       requireSession_(payload.token);
       data = createNewEntity(payload.datiEntita);
+    } else if (payload.action === 'getCompanyProfile') {
+      data = getCompanyProfile_(payload.token, payload.spreadsheetId);
+    } else if (payload.action === 'saveCompanyProfile') {
+      data = saveCompanyProfile_(payload.token, payload.profile, payload.spreadsheetId);
     } else if (payload.action === 'logout') {
       logout(payload.token);
       data = { loggedOut: true };
@@ -63,6 +67,110 @@ function doPost(event) {
     const status = message === 'SESSION_EXPIRED' || action === 'login' ? 401 : 400;
     return jsonResponse_({ status: status, error: message });
   }
+}
+
+const COMPANY_PROFILE_FIELDS_ = [
+  'ragioneSociale',
+  'indirizzo',
+  'partitaIva',
+  'codiceFiscale',
+  'email',
+  'pec',
+  'codiceDestinatario',
+  'telefono',
+];
+const COMPANY_PROFILE_ACCOUNT_FIELDS_ = [
+  'clienti',
+  'ricavi',
+  'iva',
+  'ritenute',
+  'cassa',
+  'gestione',
+  'bollo',
+  'incassi',
+  'costi',
+  'ivaCredito',
+  'fornitori',
+];
+
+function getCompanyProfile_(token, spreadsheetId) {
+  requireSession_(token);
+  const spreadsheet = getSpreadsheetForCompanyProfile_(token, spreadsheetId);
+  const sheet = spreadsheet.getSheetByName('Impostazioni');
+  if (!sheet || sheet.getLastRow() < 2) return { profile: null };
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  const values = {};
+  rows.forEach(row => {
+    const key = String(row[0] || '');
+    if (key) values[key] = String(row[1] || '');
+  });
+  if (!COMPANY_PROFILE_FIELDS_.some(key => Object.prototype.hasOwnProperty.call(values, key))) {
+    return { profile: null };
+  }
+
+  const profile = { conti: {} };
+  COMPANY_PROFILE_FIELDS_.forEach(key => { profile[key] = values[key] || ''; });
+  COMPANY_PROFILE_ACCOUNT_FIELDS_.forEach(key => {
+    profile.conti[key] = values['conti.' + key] || '';
+  });
+  return { profile: profile };
+}
+
+function saveCompanyProfile_(token, source, spreadsheetId) {
+  requireSession_(token);
+  const profile = normalizeCompanyProfile_(source);
+  const spreadsheet = getSpreadsheetForCompanyProfile_(token, spreadsheetId);
+  let sheet = spreadsheet.getSheetByName('Impostazioni');
+  if (!sheet) sheet = spreadsheet.insertSheet('Impostazioni');
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 2).setValues([['Campo', 'Valore']]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  } else {
+    const headers = sheet.getRange(1, 1, 1, 2).getValues()[0];
+    if (headers[0] !== 'Campo' || headers[1] !== 'Valore') {
+      throw new Error('La scheda Impostazioni del foglio contabile ha intestazioni non valide.');
+    }
+  }
+
+  const rows = COMPANY_PROFILE_FIELDS_.map(key => [key, profile[key]]);
+  COMPANY_PROFILE_ACCOUNT_FIELDS_.forEach(key => rows.push(['conti.' + key, profile.conti[key]]));
+  const previousDataRows = Math.max(0, sheet.getLastRow() - 1);
+  if (previousDataRows) sheet.getRange(2, 1, previousDataRows, 2).clearContent();
+  const dataRange = sheet.getRange(2, 1, rows.length, 2);
+  dataRange.setNumberFormat('@');
+  dataRange.setValues(rows);
+  return profile;
+}
+
+function getSpreadsheetForCompanyProfile_(token, spreadsheetId) {
+  if (!spreadsheetId) throw new Error('Seleziona un’entità prima di aprire le impostazioni.');
+  return getSpreadsheetForSession_(token, spreadsheetId);
+}
+
+function normalizeCompanyProfile_(source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('Dati dell’emittente non validi.');
+  }
+  const profile = { conti: {} };
+  COMPANY_PROFILE_FIELDS_.forEach(key => {
+    const value = source[key];
+    if (typeof value !== 'string' || value.length > 200) {
+      throw new Error('Il campo "' + key + '" non è valido.');
+    }
+    profile[key] = value;
+  });
+  if (!source.conti || typeof source.conti !== 'object' || Array.isArray(source.conti)) {
+    throw new Error('Mappatura contabile non valida.');
+  }
+  COMPANY_PROFILE_ACCOUNT_FIELDS_.forEach(key => {
+    const value = source.conti[key];
+    if (typeof value !== 'string' || value.length > 200) {
+      throw new Error('Il conto "' + key + '" non è valido.');
+    }
+    profile.conti[key] = value;
+  });
+  return profile;
 }
 
 function getTransactions_(token, anno, entity, spreadsheetId) {

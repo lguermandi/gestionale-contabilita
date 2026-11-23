@@ -16,7 +16,7 @@ export interface CompanyProfile {
     conti: InvoiceAccounts
 }
 
-const defaultCompanyProfile: CompanyProfile = {
+export const defaultCompanyProfile: CompanyProfile = {
     ragioneSociale: '',
     indirizzo: '',
     partitaIva: '',
@@ -40,11 +40,21 @@ const defaultCompanyProfile: CompanyProfile = {
     },
 }
 
+export function hasCustomCompanyProfile(profile: CompanyProfile) {
+    return JSON.stringify(profile) !== JSON.stringify(defaultCompanyProfile)
+}
+
 interface ProfileState {
     activeProfile: Profile
     setActiveProfile: (profile: Profile) => void
     companyProfile: CompanyProfile
+    companyProfileSpreadsheetId: string | null
+    companyProfileStatus: 'idle' | 'loading' | 'ready' | 'error'
+    companyProfileError: string | null
+    companyProfileMigrated: boolean
     setCompanyProfile: (profile: CompanyProfile) => void
+    setCompanyProfileForSpreadsheet: (profile: CompanyProfile, spreadsheetId: string, migrated?: boolean) => void
+    setCompanyProfileStatus: (status: ProfileState['companyProfileStatus'], error?: string | null) => void
 }
 
 export const useProfileStore = create<ProfileState>()(
@@ -53,10 +63,31 @@ export const useProfileStore = create<ProfileState>()(
             activeProfile: 'private',
             setActiveProfile: (profile) => set({ activeProfile: profile }),
             companyProfile: defaultCompanyProfile,
+            companyProfileSpreadsheetId: null,
+            companyProfileStatus: 'idle',
+            companyProfileError: null,
+            companyProfileMigrated: false,
             setCompanyProfile: (companyProfile) => set({ companyProfile }),
+            setCompanyProfileForSpreadsheet: (companyProfile, companyProfileSpreadsheetId, migrated = false) => set({
+                companyProfile,
+                companyProfileSpreadsheetId,
+                companyProfileStatus: 'ready',
+                companyProfileError: null,
+                companyProfileMigrated: migrated,
+            }),
+            setCompanyProfileStatus: (companyProfileStatus, companyProfileError = null) => set({
+                companyProfileStatus,
+                companyProfileError,
+                companyProfileMigrated: false,
+            }),
         }),
         {
             name: 'gestionale-active-profile',
+            partialize: (state) => ({
+                activeProfile: state.activeProfile,
+                companyProfile: state.companyProfile,
+                companyProfileSpreadsheetId: state.companyProfileSpreadsheetId,
+            }),
             merge: (persistedState, currentState) => {
                 const persisted = persistedState as Partial<ProfileState> | undefined
                 return {

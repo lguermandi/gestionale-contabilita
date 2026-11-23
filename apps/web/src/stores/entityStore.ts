@@ -55,6 +55,7 @@ export const useEntityStore = create<EntityState>()(
             nomeEntita: created.nomeEntita,
             tipologia: created.tipologia,
             folderId: created.folderId,
+            structureSpreadsheetId: created.structureSpreadsheetId,
             spreadsheetId: created.spreadsheetId,
           }
           set((state) => ({

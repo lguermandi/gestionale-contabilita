@@ -16,7 +16,7 @@ import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { createInvoicePdf, downloadInvoicePdf } from './invoicePdf'
-import { buildFatturaPaXml } from './fatturaPaXml'
+import { buildFatturaPaXml, validateFatturaPaXml } from './fatturaPaXml'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -324,6 +324,21 @@ export function InvoicesPage({ year }: { year: number }) {
     if (!company.ragioneSociale.trim() || !company.indirizzo.trim() || !company.partitaIva.trim()) {
       validationErrors.push('Completa ragione sociale, sede legale e partita IVA nelle Impostazioni.')
     }
+    const issuerVatDigits = company.partitaIva.replace(/[^0-9]/g, '')
+    if (issuerVatDigits && issuerVatDigits.length !== 11) {
+      validationErrors.push(`La partita IVA dell’emittente deve contenere 11 cifre; valore attuale: ${issuerVatDigits.length} cifre.`)
+    }
+    if (!company.regimeFiscale) validationErrors.push('Seleziona il regime fiscale nelle Impostazioni.')
+    if (!company.cap?.trim() || !company.comune?.trim()) {
+      validationErrors.push('Completa CAP e comune della sede legale nelle Impostazioni.')
+    }
+    const xmlErrors = validateFatturaPaXml({
+      ...draft,
+      numero: '',
+      stato: 'emessa',
+      totali: totals,
+    }, company)
+    validationErrors.push(...xmlErrors)
     setErrors([...new Set(validationErrors)])
     if (validationErrors.length) return
     if (!token) {
@@ -474,6 +489,11 @@ export function InvoicesPage({ year }: { year: number }) {
           I dati dell’emittente sono incompleti. <Link className="font-semibold underline" to="/impostazioni">Completa le Impostazioni</Link> prima di emettere.
         </p>
       )}
+      {page === 'invoice' && company.partitaIva && company.partitaIva.replace(/[^0-9]/g, '').length !== 11 && (
+        <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Partita IVA emittente non valida: inserire 11 cifre nelle <Link className="font-semibold underline" to="/impostazioni">Impostazioni</Link> prima dell’emissione.
+        </p>
+      )}
       {loadError && <p className="mb-5 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">{loadError}</p>}
       {customerLoadError && <p className="mb-5 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">{customerLoadError}</p>}
 
@@ -558,7 +578,7 @@ export function InvoicesPage({ year }: { year: number }) {
                         <div className="flex justify-end gap-3">
                           <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
                           <button className="font-medium text-indigo-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => handleXml(invoice)}>
-                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : 'XML'}
+                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : 'XML su Drive'}
                           </button>
                           <button className="font-medium text-stone-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => void handleArchive(invoice)}>
                             {archivingInvoiceId === invoice.id ? 'Archiviazione…' : invoice.archivio ? 'Aggiorna Drive' : 'Archivia'}

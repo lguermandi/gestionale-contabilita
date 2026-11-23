@@ -32,7 +32,10 @@ export function validateFatturaPaXml(invoice: IssuedInvoice, company: CompanyPro
   const errors: string[] = []
   const vat = formatCode(company.partitaIva)
   if (!/^IT[A-Z0-9]{11,28}$/.test(vat)) {
-    if (!/^\d{11}$/.test(company.partitaIva.replace(/\D/g, ''))) errors.push('Partita IVA emittente non valida.')
+    const digits = company.partitaIva.replace(/[^0-9]/g, '')
+    if (!/^[0-9]{11}$/.test(digits)) {
+      errors.push(`Partita IVA emittente non valida: sono richieste 11 cifre; valore attuale ${digits.length} cifre.`)
+    }
   }
   if (!company.regimeFiscale) errors.push('Seleziona il regime fiscale dell’emittente nelle Impostazioni.')
   if (!company.indirizzo || !company.comune) errors.push('Indirizzo sede, comune e CAP dell’emittente sono obbligatori.')

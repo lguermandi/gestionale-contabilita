@@ -16,7 +16,7 @@ import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { createInvoicePdf, downloadInvoicePdf } from './invoicePdf'
-import { buildFatturaPaXml, downloadFatturaPaXml } from './fatturaPaXml'
+import { buildFatturaPaXml } from './fatturaPaXml'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -124,6 +124,7 @@ export function InvoicesPage({ year }: { year: number }) {
   const [errors, setErrors] = useState<string[]>([])
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [archivingInvoiceId, setArchivingInvoiceId] = useState('')
   const totals = useMemo(() => calculateInvoiceTotals(draft), [draft])
   const visibleInvoices = useMemo(
     () => invoiceScope === `${year}:${token}:${spreadsheetId}` ? invoices : [],
@@ -365,17 +366,16 @@ export function InvoicesPage({ year }: { year: number }) {
         profileSaveError = profileError instanceof Error ? profileError.message : 'Impossibile salvare la mappatura contabile su Google Drive.'
       }
       try {
-        downloadInvoicePdf(invoice, company)
         const statusMessages = [
-          `Fattura ${invoice.numero} emessa e PDF scaricato.`,
-          archiveErrorMessage ? `Archiviazione Drive non riuscita: ${archiveErrorMessage}` : '',
+          `Fattura ${invoice.numero} emessa.`,
+          archiveErrorMessage ? `Archiviazione Drive non riuscita: ${archiveErrorMessage}` : `PDF e XML archiviati su Google Drive.`,
           profileSaveError ? `Impostazioni non aggiornate su Drive: ${profileSaveError}` : '',
         ].filter(Boolean)
         setMessage(statusMessages.join(' '))
       } catch {
         setMessage(profileSaveError
-          ? `Fattura ${invoice.numero} emessa, ma PDF e aggiornamento impostazioni non sono riusciti. ${profileSaveError}`
-          : `Fattura ${invoice.numero} emessa; il PDF può essere scaricato dallo storico.`)
+          ? `Fattura ${invoice.numero} emessa. Aggiornamento impostazioni non riuscito: ${profileSaveError}`
+          : `Fattura ${invoice.numero} emessa.`)
       }
       setDraft(newDraft(year, draft.conti))
       setErrors([])
@@ -397,12 +397,7 @@ export function InvoicesPage({ year }: { year: number }) {
   }
 
   function handleXml(invoice: IssuedInvoice) {
-    try {
-      downloadFatturaPaXml(invoice, company)
-      setMessage(`XML FatturaPA ${invoice.numero} generato.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Impossibile generare l’XML FatturaPA.')
-    }
+    void handleArchive(invoice)
   }
 
   async function handleArchive(invoice: IssuedInvoice) {
@@ -410,6 +405,8 @@ export function InvoicesPage({ year }: { year: number }) {
       setMessage('Accedi a GAS e seleziona un’entità prima di archiviare.')
       return
     }
+    setArchivingInvoiceId(invoice.id)
+    setMessage(`Archiviazione della fattura ${invoice.numero} su Google Drive…`)
     try {
       const pdf = createInvoicePdf(invoice, company).output('arraybuffer') as ArrayBuffer
       const xml = buildFatturaPaXml(invoice, company)
@@ -420,6 +417,8 @@ export function InvoicesPage({ year }: { year: number }) {
       setMessage(error instanceof Error
         ? `Archiviazione Drive non riuscita: ${error.message}`
         : 'Archiviazione Drive non riuscita.')
+    } finally {
+      setArchivingInvoiceId('')
     }
   }
 
@@ -465,6 +464,11 @@ export function InvoicesPage({ year }: { year: number }) {
         </div>
       </div>
       {!token && <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Accedi a GAS dalla barra superiore per leggere ed emettere fatture e salvare i clienti.</p>}
+      {message && (
+        <p className="mb-5 border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-800" role="status">
+          {message}
+        </p>
+      )}
       {page === 'invoice' && (!company.ragioneSociale || !company.indirizzo || !company.partitaIva) && (
         <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           I dati dell’emittente sono incompleti. <Link className="font-semibold underline" to="/impostazioni">Completa le Impostazioni</Link> prima di emettere.
@@ -553,9 +557,11 @@ export function InvoicesPage({ year }: { year: number }) {
                       <td className="px-4 py-4 text-right">
                         <div className="flex justify-end gap-3">
                           <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
-                          <button className="font-medium text-indigo-700 underline" type="button" onClick={() => handleXml(invoice)}>XML</button>
-                          <button className="font-medium text-stone-700 underline" type="button" onClick={() => void handleArchive(invoice)}>
-                            {invoice.archivio ? 'Aggiorna Drive' : 'Archivia'}
+                          <button className="font-medium text-indigo-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => handleXml(invoice)}>
+                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : 'XML'}
+                          </button>
+                          <button className="font-medium text-stone-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => void handleArchive(invoice)}>
+                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : invoice.archivio ? 'Aggiorna Drive' : 'Archivia'}
                           </button>
                           {invoice.archivio?.folderUrl && (
                             <a className="font-medium text-stone-600 underline" href={invoice.archivio.folderUrl} target="_blank" rel="noreferrer">Drive</a>
@@ -754,7 +760,7 @@ export function InvoicesPage({ year }: { year: number }) {
               <InvoicePreview draft={draft} company={company} totals={totals} />
               {errors.length > 0 && <ul className="list-disc border border-rose-200 bg-rose-50 px-8 py-3 text-sm text-rose-800" role="alert">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
               {message && <p className="text-sm text-stone-700" role="status">{message}</p>}
-              <button className="min-h-12 w-full bg-stone-950 px-5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={saving || !token || !company.ragioneSociale || !company.partitaIva}>{saving ? 'Emissione…' : 'Salva fattura e scarica PDF'}</button>
+              <button className="min-h-12 w-full bg-stone-950 px-5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={saving || !token || !company.ragioneSociale || !company.partitaIva}>{saving ? 'Emissione…' : 'Emetti e archivia su Drive'}</button>
             </div>
           </form>
 

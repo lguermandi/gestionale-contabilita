@@ -24,6 +24,14 @@ export interface CompanyProfile {
     capitaleSociale?: string
     socioUnico?: '' | 'SU' | 'SM'
     liquidazione?: '' | 'LS' | 'LN'
+    tipoSoggetto?: 'persona_fisica' | 'societa' | 'ente'
+    ateco?: string
+    coefficienteRedditivita?: number
+    aliquotaForfettario?: number
+    nuovaAttivita?: boolean
+    periodoIva?: 'mensile' | 'trimestrale'
+    addizionaleRegionale?: number
+    addizionaleComunale?: number
     conti: InvoiceAccounts
 }
 
@@ -41,6 +49,14 @@ export const defaultCompanyProfile: CompanyProfile = {
     comune: '',
     provincia: '',
     nazione: 'IT',
+    tipoSoggetto: 'persona_fisica',
+    ateco: '',
+    coefficienteRedditivita: 78,
+    aliquotaForfettario: 15,
+    nuovaAttivita: false,
+    periodoIva: 'trimestrale',
+    addizionaleRegionale: 0,
+    addizionaleComunale: 0,
     conti: {
         clienti: 'Crediti v/clienti',
         ricavi: 'Ricavi da servizi',

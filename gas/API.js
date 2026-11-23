@@ -89,6 +89,14 @@ const COMPANY_PROFILE_FIELDS_ = [
   'capitaleSociale',
   'socioUnico',
   'liquidazione',
+  'tipoSoggetto',
+  'ateco',
+  'coefficienteRedditivita',
+  'aliquotaForfettario',
+  'nuovaAttivita',
+  'periodoIva',
+  'addizionaleRegionale',
+  'addizionaleComunale',
 ];
 const COMPANY_PROFILE_ACCOUNT_FIELDS_ = [
   'clienti',
@@ -121,7 +129,18 @@ function getCompanyProfile_(token, spreadsheetId) {
   }
 
   const profile = { conti: {} };
-  COMPANY_PROFILE_FIELDS_.forEach(key => { profile[key] = values[key] || ''; });
+  const numericProfileFields = [
+    'coefficienteRedditivita',
+    'aliquotaForfettario',
+    'addizionaleRegionale',
+    'addizionaleComunale'
+  ];
+  COMPANY_PROFILE_FIELDS_.forEach(key => {
+    const value = values[key] || '';
+    if (key === 'nuovaAttivita') profile[key] = value === 'true';
+    else if (numericProfileFields.includes(key)) profile[key] = value === '' ? '' : Number(value);
+    else profile[key] = value;
+  });
   COMPANY_PROFILE_ACCOUNT_FIELDS_.forEach(key => {
     profile.conti[key] = values['conti.' + key] || '';
   });
@@ -164,8 +183,24 @@ function normalizeCompanyProfile_(source) {
     throw new Error('Dati dell’emittente non validi.');
   }
   const profile = { conti: {} };
+  const numericFields = {
+    coefficienteRedditivita: true,
+    aliquotaForfettario: true,
+    addizionaleRegionale: true,
+    addizionaleComunale: true
+  };
   COMPANY_PROFILE_FIELDS_.forEach(key => {
     const value = source[key];
+    if (key === 'nuovaAttivita') {
+      profile[key] = value === true ? 'true' : 'false';
+      return;
+    }
+    if (numericFields[key]) {
+      const number = Number(value);
+      if (!isFinite(number)) throw new Error('Il campo "' + key + '" non è valido.');
+      profile[key] = String(number);
+      return;
+    }
     if (typeof value !== 'string' || value.length > 200) {
       throw new Error('Il campo "' + key + '" non è valido.');
     }

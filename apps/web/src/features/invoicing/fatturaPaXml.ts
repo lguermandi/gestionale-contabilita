@@ -72,7 +72,7 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
 
   const vatGroups = new Map<number, { base: number; vat: number }>()
   for (const line of invoice.linee) {
-    const rate = line.aliquotaIva ?? invoice.aliquotaIva
+    const rate = company.regimeFiscale === 'RF19' ? 0 : (line.aliquotaIva ?? invoice.aliquotaIva)
     const base = Math.round(line.quantita * line.prezzoUnitario * 100) / 100
     const current = vatGroups.get(rate) || { base: 0, vat: 0 }
     current.base += base
@@ -81,8 +81,11 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
   }
 
   const dettaglio = invoice.linee.map((line, index) => {
-    const rate = line.aliquotaIva ?? invoice.aliquotaIva
-    const natura = line.naturaIva || (rate === 0 ? 'N1' : '')
+    const originalRate = line.aliquotaIva ?? invoice.aliquotaIva
+    const rate = company.regimeFiscale === 'RF19' ? 0 : originalRate
+    const natura = company.regimeFiscale === 'RF19'
+      ? 'N2.2'
+      : (line.naturaIva || (rate === 0 ? 'N1' : ''))
     return `      <DettaglioLinee>
         <NumeroLinea>${index + 1}</NumeroLinea>
         <Descrizione>${esc(line.descrizione)}</Descrizione>
@@ -96,7 +99,9 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
   }).join('\n')
 
   const riepilogo = [...vatGroups.entries()].sort(([left], [right]) => left - right).map(([rate, values]) => {
-    const natura = invoice.linee.find((line) => (line.aliquotaIva ?? invoice.aliquotaIva) === rate)?.naturaIva || (rate === 0 ? 'N1' : '')
+    const natura = company.regimeFiscale === 'RF19'
+      ? 'N2.2'
+      : (invoice.linee.find((line) => (line.aliquotaIva ?? invoice.aliquotaIva) === rate)?.naturaIva || (rate === 0 ? 'N1' : ''))
     return `      <DatiRiepilogo>
         <AliquotaIVA>${decimal(rate)}</AliquotaIVA>
         ${natura ? `<Natura>${esc(natura)}</Natura>` : ''}

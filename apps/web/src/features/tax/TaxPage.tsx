@@ -3,6 +3,7 @@ import { buildAccountingReportsForYear, type AccountBalance } from '../../domain
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { buildTaxCalendar, type TaxDeadline } from './taxCalendar'
+import { buildTaxPreview } from '../../domain/tax'
 
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const kindLabels: Record<TaxDeadline['kind'], string> = {
@@ -34,11 +35,15 @@ export function TaxPage() {
   const vatNet = vatDebit - vatCredit
   const vatDue = vatNet > 0 ? vatNet : 0
   const vatCreditBalance = vatNet < 0 ? Math.abs(vatNet) : 0
-  const taxableIncome = Math.max(reports.contoEconomico.utile, 0)
-  const iresEstimate = taxableIncome * 0.24
-  const irapEstimate = taxableIncome * 0.039
+  const taxPreview = useMemo(() => buildTaxPreview(
+    [...historyTransactions, ...transactions],
+    reports.contoEconomico,
+    { debito: vatDue, credito: vatCreditBalance },
+    profile,
+    year,
+  ), [historyTransactions, profile, reports.contoEconomico, transactions, vatCreditBalance, vatDue, year])
   const today = new Date().toISOString().slice(0, 10)
-  const deadlines = buildTaxCalendar(year).filter((item) => showPast || item.date >= today)
+  const deadlines = buildTaxCalendar(year, profile.regimeFiscale, profile.periodoIva).filter((item) => showPast || item.date >= today)
 
   return (
     <section className="mx-auto w-full max-w-6xl px-5 py-8 md:px-8">
@@ -52,26 +57,35 @@ export function TaxPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <article className="border border-stone-200 bg-white p-5">
-          <p className="text-sm text-stone-600">IVA da versare</p>
-          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(vatDue)}</p>
-          <p className="mt-2 text-xs text-stone-500">Differenza IVA a debito meno credito</p>
+          <p className="text-sm text-stone-600">Fatturato / compensi</p>
+          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(taxPreview.fatturato)}</p>
+          <p className="mt-2 text-xs text-stone-500">{taxPreview.regimeLabel}</p>
         </article>
         <article className="border border-stone-200 bg-white p-5">
-          <p className="text-sm text-stone-600">Credito IVA</p>
-          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(vatCreditBalance)}</p>
-          <p className="mt-2 text-xs text-stone-500">Credito da liquidazione o riporto</p>
+          <p className="text-sm text-stone-600">{taxPreview.regime === 'RF19' ? 'Imposta sostitutiva' : 'IRES indicativa'}</p>
+          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(taxPreview.regime === 'RF19' ? taxPreview.impostaSostitutiva : taxPreview.ires)}</p>
+          <p className="mt-2 text-xs text-stone-500">{taxPreview.regime === 'RF19' ? `Reddito forfettario al ${taxPreview.coefficienteForfettario}%` : 'Aliquota indicativa 24%'}</p>
         </article>
         <article className="border border-stone-200 bg-white p-5">
-          <p className="text-sm text-stone-600">IRES indicativa</p>
-          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(iresEstimate)}</p>
-          <p className="mt-2 text-xs text-stone-500">Stima al 24% del risultato positivo</p>
+          <p className="text-sm text-stone-600">{taxPreview.regime === 'RF19' ? 'IVA netta' : 'IRPEF / IRAP'}</p>
+          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(taxPreview.regime === 'RF19' ? taxPreview.ivaNetta : taxPreview.irpef + taxPreview.irap)}</p>
+          <p className="mt-2 text-xs text-stone-500">{taxPreview.regime === 'RF19' ? 'Esenzione IVA da verificare' : 'Stime da riconciliare con dichiarazione'}</p>
         </article>
         <article className="border border-stone-200 bg-white p-5">
-          <p className="text-sm text-stone-600">IRAP indicativa</p>
-          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(irapEstimate)}</p>
-          <p className="mt-2 text-xs text-stone-500">Stima orientativa al 3,90%</p>
+          <p className="text-sm text-stone-600">IVA / credito</p>
+          <p className="mt-3 text-2xl font-semibold text-stone-950">{euro.format(taxPreview.ivaNetta)}</p>
+          <p className="mt-2 text-xs text-stone-500">Debito {euro.format(taxPreview.ivaDebito)} · Credito {euro.format(taxPreview.ivaCredito)}</p>
         </article>
       </div>
+
+      {taxPreview.warnings.length > 0 && (
+        <section className="mb-6 border border-rose-200 bg-rose-50 p-5" role="alert">
+          <h2 className="font-semibold text-rose-950">Controlli fiscali automatici</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-rose-900">
+            {taxPreview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </section>
+      )}
 
       <section className="mb-6 border border-amber-200 bg-amber-50 p-5">
         <h2 className="font-semibold text-amber-950">Prima di effettuare un versamento</h2>

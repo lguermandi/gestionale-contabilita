@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { saveCompanyProfile } from '../../api/ledgerApi'
 import type { InvoiceAccounts } from '../../domain/invoicing'
+import { FISCAL_REGIME_OPTIONS } from '../../domain/tax'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useEntityStore } from '../../stores/entityStore'
 import { useProfileStore, type CompanyProfile } from '../../stores/profileStore'
@@ -15,7 +16,6 @@ const identityFields: Array<{ key: keyof Omit<CompanyProfile, 'conti'>; label: s
   { key: 'comune', label: 'Comune sede legale', required: true },
   { key: 'provincia', label: 'Provincia (sigla)' },
   { key: 'nazione', label: 'Nazione', required: true },
-  { key: 'regimeFiscale', label: 'Regime fiscale (es. RF01)', required: true },
   { key: 'email', label: 'Email' },
   { key: 'pec', label: 'PEC' },
   { key: 'codiceDestinatario', label: 'Codice destinatario' },
@@ -221,7 +221,9 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
                 {field.label}
                 <input
                   className={inputClass}
-                  value={profile[field.key]}
+                  value={typeof profile[field.key] === 'string' || typeof profile[field.key] === 'number'
+                    ? String(profile[field.key])
+                    : ''}
                   disabled={profileStatus !== 'ready' || savingProfile}
                   required={field.required}
                   type={field.key === 'email' || field.key === 'pec' ? 'email' : 'text'}
@@ -233,7 +235,73 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
                 />
               </label>
             ))}
+            <label className="block text-sm text-stone-700">
+              Regime fiscale
+              <select
+                className={inputClass}
+                value={profile.regimeFiscale || 'RF01'}
+                disabled={profileStatus !== 'ready' || savingProfile}
+                required
+                onChange={(event) => {
+                  setSaved(false)
+                  setProfile((current) => ({ ...current, regimeFiscale: event.target.value }))
+                }}
+              >
+                {FISCAL_REGIME_OPTIONS.map((option) => (
+                  <option key={option.code} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm text-stone-700">
+              Tipo di soggetto fiscale
+              <select
+                className={inputClass}
+                value={profile.tipoSoggetto || 'persona_fisica'}
+                disabled={profileStatus !== 'ready' || savingProfile}
+                onChange={(event) => {
+                  setSaved(false)
+                  setProfile((current) => ({ ...current, tipoSoggetto: event.target.value as 'persona_fisica' | 'societa' | 'ente' }))
+                }}
+              >
+                <option value="persona_fisica">Persona fisica / professionista</option>
+                <option value="societa">Società soggetta a IRES</option>
+                <option value="ente">Ente</option>
+              </select>
+            </label>
+            <label className="block text-sm text-stone-700">
+              Codice ATECO
+              <input className={inputClass} value={profile.ateco || ''} maxLength={10} disabled={profileStatus !== 'ready' || savingProfile}
+                onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, ateco: event.target.value })) }} />
+            </label>
+            <label className="block text-sm text-stone-700">
+              Periodicità liquidazione IVA
+              <select className={inputClass} value={profile.periodoIva || 'trimestrale'} disabled={profileStatus !== 'ready' || savingProfile}
+                onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, periodoIva: event.target.value as 'mensile' | 'trimestrale' })) }}>
+                <option value="mensile">Mensile</option>
+                <option value="trimestrale">Trimestrale</option>
+              </select>
+            </label>
           </div>
+          {profile.regimeFiscale === 'RF19' && (
+            <div className="mt-5 grid gap-4 border-t border-stone-200 pt-5 sm:grid-cols-3">
+              <label className="block text-sm text-stone-700">Coefficiente redditività %
+                <input className={inputClass} type="number" min="0" max="100" step="0.01" value={profile.coefficienteRedditivita ?? 78}
+                  onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, coefficienteRedditivita: Number(event.target.value) })) }} />
+              </label>
+              <label className="block text-sm text-stone-700">Aliquota sostitutiva %
+                <select className={inputClass} value={profile.aliquotaForfettario ?? 15}
+                  onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, aliquotaForfettario: Number(event.target.value) })) }}>
+                  <option value={5}>5% - nuova attività</option>
+                  <option value={15}>15% - ordinario</option>
+                </select>
+              </label>
+              <label className="flex min-h-10 items-center gap-2 self-end text-sm text-stone-700">
+                <input type="checkbox" checked={profile.nuovaAttivita || false}
+                  onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, nuovaAttivita: event.target.checked })) }} />
+                Nuova attività nei primi cinque anni
+              </label>
+            </div>
+          )}
         </section>
 
         <section className="border border-stone-200 bg-white p-5">

@@ -6,6 +6,7 @@ export type SocialSecurityScheme = 'nessuna' | 'gestione_separata' | 'artigiani'
 export interface AtecoActivity {
   codice: string
   coefficienteRedditivita: number
+  principale?: boolean
 }
 
 export interface TaxBreakdownStep {

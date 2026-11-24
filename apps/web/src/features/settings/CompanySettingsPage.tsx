@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { saveCompanyProfile } from '../../api/ledgerApi'
 import type { InvoiceAccounts } from '../../domain/invoicing'
 import { FISCAL_REGIME_OPTIONS } from '../../domain/tax'
+import { AtecoSelector } from './AtecoSelector'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useEntityStore } from '../../stores/entityStore'
 import { useProfileStore, type CompanyProfile } from '../../stores/profileStore'
@@ -271,11 +272,6 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
               </select>
             </label>
             <label className="block text-sm text-stone-700">
-              Codice ATECO
-              <input className={inputClass} value={profile.ateco || ''} maxLength={10} disabled={profileStatus !== 'ready' || savingProfile}
-                onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, ateco: event.target.value })) }} />
-            </label>
-            <label className="block text-sm text-stone-700">
               Periodicità liquidazione IVA
               <select className={inputClass} value={profile.periodoIva || 'trimestrale'} disabled={profileStatus !== 'ready' || savingProfile}
                 onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, periodoIva: event.target.value as 'mensile' | 'trimestrale' })) }}>
@@ -284,13 +280,27 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
               </select>
             </label>
           </div>
+          <AtecoSelector
+            activities={profile.attivitaAteco?.length
+              ? profile.attivitaAteco
+              : profile.ateco
+                ? [{ codice: profile.ateco, coefficienteRedditivita: profile.coefficienteRedditivita ?? 78, principale: true }]
+                : []}
+            disabled={profileStatus !== 'ready' || savingProfile}
+            onChange={(activities) => {
+              const primary = activities.find((activity) => activity.principale) ?? activities[0]
+              setSaved(false)
+              setProfile((current) => ({
+                ...current,
+                attivitaAteco: activities,
+                ateco: primary?.codice ?? '',
+                coefficienteRedditivita: primary?.coefficienteRedditivita ?? current.coefficienteRedditivita,
+              }))
+            }}
+          />
           {profile.regimeFiscale === 'RF19' && (
             <div className="mt-5 space-y-5 border-t border-stone-200 pt-5">
               <div className="grid gap-4 sm:grid-cols-3">
-              <label className="block text-sm text-stone-700">Coefficiente redditività %
-                <input className={inputClass} type="number" min="0" max="100" step="0.01" value={profile.coefficienteRedditivita ?? 78}
-                  onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, coefficienteRedditivita: Number(event.target.value) })) }} />
-              </label>
               <label className="block text-sm text-stone-700">Aliquota sostitutiva %
                 <select className={inputClass} value={profile.aliquotaForfettario ?? 15}
                   onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, aliquotaForfettario: Number(event.target.value) })) }}>
@@ -304,66 +314,6 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
                 Nuova attività nei primi cinque anni
               </label>
               </div>
-              <section>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold text-stone-800">Attività e codici ATECO</h3>
-                    <p className="mt-1 text-xs text-stone-500">A ogni codice verrà applicato il suo coefficiente, senza mediare i risultati.</p>
-                  </div>
-                  <button type="button" className="min-h-9 border border-stone-300 px-3 text-sm hover:bg-stone-50"
-                    disabled={savingProfile || profileStatus !== 'ready'}
-                    onClick={() => {
-                      setSaved(false)
-                      setProfile((current) => ({
-                        ...current,
-                        attivitaAteco: [...(current.attivitaAteco ?? []), {
-                          codice: current.ateco || '',
-                          coefficienteRedditivita: current.coefficienteRedditivita ?? 78,
-                        }],
-                      }))
-                    }}>
-                    Aggiungi codice
-                  </button>
-                </div>
-                {(profile.attivitaAteco ?? []).map((activity, index) => (
-                  <div key={`${index}-${activity.codice}`} className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                    <label className="block text-sm text-stone-700">Codice ATECO
-                      <input className={inputClass} value={activity.codice} maxLength={10} required
-                        onChange={(event) => {
-                          setSaved(false)
-                          setProfile((current) => ({
-                            ...current,
-                            attivitaAteco: (current.attivitaAteco ?? []).map((item, itemIndex) => itemIndex === index
-                              ? { ...item, codice: event.target.value }
-                              : item),
-                          }))
-                        }} />
-                    </label>
-                    <label className="block text-sm text-stone-700">Coefficiente %
-                      <input className={inputClass} type="number" min="0" max="100" step="0.01" value={activity.coefficienteRedditivita}
-                        onChange={(event) => {
-                          setSaved(false)
-                          setProfile((current) => ({
-                            ...current,
-                            attivitaAteco: (current.attivitaAteco ?? []).map((item, itemIndex) => itemIndex === index
-                              ? { ...item, coefficienteRedditivita: Number(event.target.value) }
-                              : item),
-                          }))
-                        }} />
-                    </label>
-                    <button type="button" className="min-h-10 self-end text-sm text-rose-700 hover:underline"
-                      onClick={() => {
-                        setSaved(false)
-                        setProfile((current) => ({
-                          ...current,
-                          attivitaAteco: (current.attivitaAteco ?? []).filter((_, itemIndex) => itemIndex !== index),
-                        }))
-                      }}>
-                      Rimuovi
-                    </button>
-                  </div>
-                ))}
-              </section>
               <div className="grid gap-4 border-t border-stone-200 pt-4 sm:grid-cols-3">
                 <label className="block text-sm text-stone-700">Gestione previdenziale
                   <select className={inputClass} value={profile.gestionePrevidenziale ?? 'nessuna'}

@@ -29,6 +29,24 @@ export interface NewAccountingEntity {
   regime: string
 }
 
+export interface TaxNotificationSettings {
+  email: string
+  daysBefore: number
+  enabled: boolean
+}
+
+export interface TaxNotificationDeadline {
+  id: string
+  calendarYear: number
+  date: string
+  title: string
+  description: string
+  amount: number
+  kind?: 'iva' | 'redditi' | 'declaration' | 'inps' | 'bollo' | 'personal'
+  paid?: boolean
+  f24: Array<{ section: 'Erario' | 'INPS'; code: string; year: number; amount: number }>
+}
+
 async function requestGas<T>(payload: Record<string, unknown>): Promise<T> {
   const response = await fetch(API_BASE_URL, {
     method: 'POST',
@@ -132,6 +150,51 @@ export function saveCompanyProfile(token: string, profile: CompanyProfile, sprea
     token,
     profile,
     spreadsheetId,
+  })
+}
+
+export function getTaxNotificationSettings(token: string, spreadsheetId: string) {
+  return requestGas<{ settings: TaxNotificationSettings; deadlines: TaxNotificationDeadline[] }>({
+    action: 'getTaxNotificationSettings',
+    token,
+    spreadsheetId,
+  })
+}
+
+export function saveTaxNotificationSettings(
+  token: string,
+  spreadsheetId: string,
+  entityId: string,
+  entityName: string,
+  calendarYear: number,
+  settings: TaxNotificationSettings,
+  deadlines: TaxNotificationDeadline[],
+) {
+  return requestGas<{ settings: TaxNotificationSettings; saved: boolean }>({
+    action: 'saveTaxNotificationSettings',
+    token,
+    spreadsheetId,
+    entityId,
+    entityName,
+    calendarYear,
+    settings,
+    deadlines,
+  })
+}
+
+export function sendTaxNotificationTest(
+  token: string,
+  spreadsheetId: string,
+  entityName: string,
+  settings: TaxNotificationSettings,
+) {
+  return requestGas<{ sent: boolean }>({
+    action: 'sendTaxNotificationTest',
+    token,
+    spreadsheetId,
+    entityName,
+    settings,
+    dashboardUrl: 'https://lguermandi.github.io/gestionale-contabilita/',
   })
 }
 

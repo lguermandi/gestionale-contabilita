@@ -123,6 +123,29 @@ Dopo `clasp push`, crea una nuova versione del deployment Web App. L'accesso
 usa le credenziali GAS configurate sopra; il token di sessione resta in memoria
 nel client e scade dopo sei ore.
 
+Le azioni `getTaxNotificationSettings`, `saveTaxNotificationSettings` e
+`sendTaxNotificationTest` gestiscono i promemoria fiscali tramite
+`TaxNotifications.js`. Le preferenze email e le scadenze sono memorizzate nelle
+proprietà dello script, separate per entità.
+
+### Promemoria fiscali via email
+
+Le notifiche fiscali sono opzionali e disattivate inizialmente. Dopo aver
+pubblicato i file GAS:
+
+1. Nell'editor Apps Script esegui una volta `authorizeTaxNotifications_` e
+   autorizza l'invio email.
+2. Esegui una volta `installTaxNotificationTrigger` per installare il controllo
+   giornaliero alle 08:00 (fuso orario del progetto). La funzione sostituisce
+   un eventuale trigger precedente dello stesso tipo.
+3. Pubblica una nuova versione del deployment Web App, poi in **Tasse e
+   scadenze** inserisci l'email, attiva gli avvisi e salva le preferenze e le
+   scadenze. Il pulsante **Invia email di test** verifica il recapito.
+
+Il controllo invia un solo messaggio per entità, scadenza e anno mentre questa
+è nella finestra configurata. Le scadenze segnate come pagate vengono escluse.
+Importi e date sono stime e vanno verificati prima del versamento.
+
 I fogli annuali esistenti restano l'entità privata; le registrazioni aziendali
 sono salvate in fogli separati `AZIENDA_<anno>`, creati al primo inserimento.
 Le fatture emesse sono registrate nel foglio `Fatture` con numero progressivo

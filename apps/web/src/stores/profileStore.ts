@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { InvoiceAccounts } from '../domain/invoicing'
+import type { AtecoActivity, SocialSecurityScheme } from '../domain/tax'
 
 type Profile = 'private' | 'business'
 
@@ -29,6 +30,13 @@ export interface CompanyProfile {
     coefficienteRedditivita?: number
     aliquotaForfettario?: number
     nuovaAttivita?: boolean
+    attivitaAteco?: AtecoActivity[]
+    gestionePrevidenziale?: SocialSecurityScheme
+    aliquotaGestioneSeparata?: number
+    contributoFissoAnnuale?: number
+    redditoMinimaleInps?: number
+    aliquotaEccedenzaInps?: number
+    saldoAnnoPrecedente?: number
     periodoIva?: 'mensile' | 'trimestrale'
     addizionaleRegionale?: number
     addizionaleComunale?: number
@@ -54,6 +62,13 @@ export const defaultCompanyProfile: CompanyProfile = {
     coefficienteRedditivita: 78,
     aliquotaForfettario: 15,
     nuovaAttivita: false,
+    attivitaAteco: [],
+    gestionePrevidenziale: 'nessuna',
+    aliquotaGestioneSeparata: 26.07,
+    contributoFissoAnnuale: 4400,
+    redditoMinimaleInps: 18555,
+    aliquotaEccedenzaInps: 24,
+    saldoAnnoPrecedente: 0,
     periodoIva: 'trimestrale',
     addizionaleRegionale: 0,
     addizionaleComunale: 0,

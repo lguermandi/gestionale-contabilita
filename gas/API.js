@@ -28,6 +28,12 @@ function doPost(event) {
       data = getCompanyProfile_(payload.token, payload.spreadsheetId);
     } else if (payload.action === 'saveCompanyProfile') {
       data = saveCompanyProfile_(payload.token, payload.profile, payload.spreadsheetId);
+    } else if (payload.action === 'getTaxNotificationSettings') {
+      data = getTaxNotificationSettings_(payload.token, payload.spreadsheetId);
+    } else if (payload.action === 'saveTaxNotificationSettings') {
+      data = saveTaxNotificationSettings_(payload.token, payload.spreadsheetId, payload.entityId, payload.entityName, payload.calendarYear, payload.settings, payload.deadlines);
+    } else if (payload.action === 'sendTaxNotificationTest') {
+      data = sendTaxNotificationTest_(payload.token, payload.spreadsheetId, payload.entityName, payload.settings, payload.dashboardUrl);
     } else if (payload.action === 'logout') {
       logout(payload.token);
       data = { loggedOut: true };
@@ -96,6 +102,13 @@ const COMPANY_PROFILE_FIELDS_ = [
   'coefficienteRedditivita',
   'aliquotaForfettario',
   'nuovaAttivita',
+  'attivitaAteco',
+  'gestionePrevidenziale',
+  'aliquotaGestioneSeparata',
+  'contributoFissoAnnuale',
+  'redditoMinimaleInps',
+  'aliquotaEccedenzaInps',
+  'saldoAnnoPrecedente',
   'periodoIva',
   'addizionaleRegionale',
   'addizionaleComunale',
@@ -134,13 +147,37 @@ function getCompanyProfile_(token, spreadsheetId) {
   const numericProfileFields = [
     'coefficienteRedditivita',
     'aliquotaForfettario',
+    'aliquotaGestioneSeparata',
+    'contributoFissoAnnuale',
+    'redditoMinimaleInps',
+    'aliquotaEccedenzaInps',
+    'saldoAnnoPrecedente',
     'addizionaleRegionale',
     'addizionaleComunale'
   ];
+  const numericProfileDefaults = {
+    coefficienteRedditivita: 78,
+    aliquotaForfettario: 15,
+    aliquotaGestioneSeparata: 26.07,
+    contributoFissoAnnuale: 4400,
+    redditoMinimaleInps: 18555,
+    aliquotaEccedenzaInps: 24,
+    saldoAnnoPrecedente: 0,
+    addizionaleRegionale: 0,
+    addizionaleComunale: 0
+  };
   COMPANY_PROFILE_FIELDS_.forEach(key => {
     const value = values[key] || '';
     if (key === 'nuovaAttivita') profile[key] = value === 'true';
-    else if (numericProfileFields.includes(key)) profile[key] = value === '' ? '' : Number(value);
+    else if (key === 'attivitaAteco') {
+      try {
+        profile[key] = value ? JSON.parse(value) : [];
+      } catch (error) {
+        throw new Error('La configurazione dei codici ATECO non è leggibile.');
+      }
+    }
+    else if (numericProfileFields.includes(key)) profile[key] = value === '' ? numericProfileDefaults[key] : Number(value);
+    else if (key === 'gestionePrevidenziale') profile[key] = value || 'nessuna';
     else profile[key] = value;
   });
   COMPANY_PROFILE_ACCOUNT_FIELDS_.forEach(key => {
@@ -172,7 +209,10 @@ function saveCompanyProfile_(token, source, spreadsheetId) {
   const dataRange = sheet.getRange(2, 1, rows.length, 2);
   dataRange.setNumberFormat('@');
   dataRange.setValues(rows);
-  return profile;
+  return Object.assign({}, profile, {
+    attivitaAteco: JSON.parse(profile.attivitaAteco || '[]'),
+    nuovaAttivita: profile.nuovaAttivita === 'true'
+  });
 }
 
 function getSpreadsheetForCompanyProfile_(token, spreadsheetId) {
@@ -188,8 +228,24 @@ function normalizeCompanyProfile_(source) {
   const numericFields = {
     coefficienteRedditivita: true,
     aliquotaForfettario: true,
+    aliquotaGestioneSeparata: true,
+    contributoFissoAnnuale: true,
+    redditoMinimaleInps: true,
+    aliquotaEccedenzaInps: true,
+    saldoAnnoPrecedente: true,
     addizionaleRegionale: true,
     addizionaleComunale: true
+  };
+  const numericDefaults = {
+    coefficienteRedditivita: 78,
+    aliquotaForfettario: 15,
+    aliquotaGestioneSeparata: 26.07,
+    contributoFissoAnnuale: 4400,
+    redditoMinimaleInps: 18555,
+    aliquotaEccedenzaInps: 24,
+    saldoAnnoPrecedente: 0,
+    addizionaleRegionale: 0,
+    addizionaleComunale: 0
   };
   COMPANY_PROFILE_FIELDS_.forEach(key => {
     const value = source[key];
@@ -197,8 +253,28 @@ function normalizeCompanyProfile_(source) {
       profile[key] = value === true ? 'true' : 'false';
       return;
     }
+    if (key === 'attivitaAteco') {
+      if (!Array.isArray(value) || value.length > 10) {
+        throw new Error('La lista dei codici ATECO non è valida.');
+      }
+      const activities = value.map(activity => {
+        if (!activity || typeof activity.codice !== 'string' || activity.codice.trim().length > 10) {
+          throw new Error('Un codice ATECO non è valido.');
+        }
+        const coefficient = Number(activity.coefficienteRedditivita);
+        if (!activity.codice.trim() || !isFinite(coefficient) || coefficient < 0 || coefficient > 100) {
+          throw new Error('Il codice ATECO e il coefficiente devono essere validi.');
+        }
+        return { codice: activity.codice.trim(), coefficienteRedditivita: coefficient };
+      });
+      if (new Set(activities.map(activity => activity.codice)).size !== activities.length) {
+        throw new Error('Ogni codice ATECO può comparire una sola volta.');
+      }
+      profile[key] = JSON.stringify(activities);
+      return;
+    }
     if (numericFields[key]) {
-      const number = Number(value);
+      const number = value === undefined || value === '' ? numericDefaults[key] : Number(value);
       if (!isFinite(number)) throw new Error('Il campo "' + key + '" non è valido.');
       profile[key] = String(number);
       return;
@@ -217,6 +293,23 @@ function normalizeCompanyProfile_(source) {
       throw new Error('Il conto "' + key + '" non è valido.');
     }
     profile.conti[key] = value;
+  });
+  if (profile.gestionePrevidenziale && !['nessuna', 'gestione_separata', 'artigiani', 'commercianti'].includes(profile.gestionePrevidenziale)) {
+    throw new Error('La gestione previdenziale selezionata non è valida.');
+  }
+  if (![5, 15].includes(Number(profile.aliquotaForfettario))) {
+    throw new Error('L’aliquota forfettaria deve essere 5% oppure 15%.');
+  }
+  [
+    'coefficienteRedditivita',
+    'aliquotaGestioneSeparata',
+    'aliquotaEccedenzaInps'
+  ].forEach(key => {
+    const value = Number(profile[key]);
+    if (value < 0 || value > 100) throw new Error('Il campo "' + key + '" deve essere tra 0 e 100.');
+  });
+  ['contributoFissoAnnuale', 'redditoMinimaleInps', 'saldoAnnoPrecedente'].forEach(key => {
+    if (Number(profile[key]) < 0) throw new Error('Il campo "' + key + '" non può essere negativo.');
   });
   return profile;
 }

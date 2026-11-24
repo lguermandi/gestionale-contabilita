@@ -5,11 +5,13 @@ import {
   saveTaxNotificationSettings,
   saveTransaction,
   sendTaxNotificationTest,
+  fetchPayslips,
   type TaxNotificationSettings,
 } from '../../api/ledgerApi'
 import { buildAccountingReportsForYear, type LedgerTransaction } from '../../domain/accounting'
 import type { IssuedInvoice } from '../../domain/invoicing'
-import { buildTaxPreview, formatItalianNumber } from '../../domain/tax'
+import { buildTaxPreview, calculatePayrollAnnualThreshold, formatItalianNumber } from '../../domain/tax'
+import type { PayslipResult } from '../../domain/payroll'
 import { useEntityStore } from '../../stores/entityStore'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
@@ -204,6 +206,7 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
   const [manualDescription, setManualDescription] = useState('')
   const [manualF24Code, setManualF24Code] = useState('')
   const [manualF24Section, setManualF24Section] = useState<'Erario' | 'INPS'>('Erario')
+  const [payrollPayslips, setPayrollPayslips] = useState<PayslipResult[]>([])
 
   const allTransactions = useMemo(
     () => [...historyTransactions, ...transactions],
@@ -260,12 +263,28 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
   const nextDeadline = upcoming[0]
   const totalToSetAside = upcoming.reduce((total, deadline) => total + Math.max(0, deadline.amount), 0)
   const thresholdProgress = Math.min(100, taxPreview.fatturato / taxPreview.sogliaForfettario * 100)
+  const payrollThreshold = calculatePayrollAnnualThreshold(payrollPayslips, year)
   const notificationScope = `${token}:${spreadsheetId}:${entityId}:${year}`
   const currentInvoiceError = invoiceErrorScope === `${year}:${spreadsheetId}:${token}` ? invoiceError : ''
   const currentNotificationSettings = notificationLoadedScope === notificationScope
     ? notificationSettings
     : defaultNotificationSettings
   const currentNotificationError = notificationErrorScope === notificationScope ? notificationError : ''
+
+  useEffect(() => {
+    if (!token || !spreadsheetId || isPrivate) {
+      return
+    }
+    let active = true
+    void Promise.all(Array.from({ length: 12 }, (_, index) =>
+      fetchPayslips(token, year, index + 1, spreadsheetId)
+    )).then((months) => {
+      if (active) setPayrollPayslips(months.flat())
+    }).catch(() => {
+      if (active) setPayrollPayslips([])
+    })
+    return () => { active = false }
+  }, [isPrivate, spreadsheetId, token, year])
 
   useEffect(() => {
     if (!token || !spreadsheetId) return
@@ -505,6 +524,18 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
           <p className="mt-3 text-lg font-semibold text-stone-950">{nextDeadline?.title || 'Nessuna scadenza imminente'}</p>
           {nextDeadline && <p className="mt-2 text-sm text-stone-600">{new Date(`${nextDeadline.date}T12:00:00`).toLocaleDateString('it-IT')} · {euro.format(nextDeadline.amount)}</p>}
         </article>
+        {!isPrivate && (
+          <article className="border border-stone-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-stone-600">Spese lorde paghe / soglia 20.000</p>
+              <p className="text-sm font-semibold text-stone-900">{euro.format(payrollThreshold.total)} / {euro.format(payrollThreshold.threshold)}</p>
+            </div>
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-stone-200" role="progressbar" aria-label="Avanzamento soglia forfettario paghe">
+              <div className={`h-full ${payrollThreshold.exceeded ? 'bg-rose-600' : payrollThreshold.attention ? 'bg-amber-500' : 'bg-emerald-700'}`} style={{ width: `${Math.min(100, payrollThreshold.percentage)}%` }} />
+            </div>
+            {payrollThreshold.attention && <p className={`mt-3 text-sm ${payrollThreshold.exceeded ? 'text-rose-700' : 'text-amber-700'}`}>{payrollThreshold.exceeded ? 'Soglia paghe forfettario superata.' : 'Attenzione: spese paghe oltre l’80% della soglia.'}</p>}
+          </article>
+        )}
         {profile.regimeFiscale === 'RF19' && !isPrivate && (
           <article className="border border-stone-200 bg-white p-5">
             <div className="flex items-center justify-between gap-3">

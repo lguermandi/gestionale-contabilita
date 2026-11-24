@@ -69,6 +69,22 @@ function doPost(event) {
       data = issueInvoice_(payload.token, payload.invoice, payload.spreadsheetId);
     } else if (payload.action === 'archiveInvoice') {
       data = archiveInvoice_(payload.token, payload.invoice, payload.pdfBase64, payload.xmlText, payload.spreadsheetId);
+    } else if (payload.action === 'getPayrollWorkers') {
+      data = getPayrollWorkers_(payload.token, payload.spreadsheetId);
+    } else if (payload.action === 'savePayrollWorker') {
+      data = savePayrollWorker_(payload.token, payload.worker, payload.spreadsheetId);
+    } else if (payload.action === 'getPayrollAttendance') {
+      data = getPayrollAttendance_(payload.token, payload.anno, payload.mese, payload.spreadsheetId);
+    } else if (payload.action === 'savePayrollAttendance') {
+      data = savePayrollAttendance_(payload.token, payload.attendance, payload.spreadsheetId);
+    } else if (payload.action === 'getPayslips') {
+      data = getPayslips_(payload.token, payload.anno, payload.mese, payload.spreadsheetId);
+    } else if (payload.action === 'savePayslip') {
+      data = savePayslip_(payload.token, payload.payslip, payload.spreadsheetId);
+    } else if (payload.action === 'savePayslipPdf') {
+      data = savePayslipPdf_(payload.token, payload.payslip, payload.pdfBase64, payload.spreadsheetId);
+    } else if (payload.action === 'sendPayslipEmail') {
+      data = sendPayslipEmail_(payload.token, payload.payslip, payload.pdfBase64, payload.spreadsheetId);
     } else {
       return jsonResponse_({ status: 400, error: 'Azione non supportata.' });
     }

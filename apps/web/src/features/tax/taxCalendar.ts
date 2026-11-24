@@ -33,6 +33,7 @@ export interface TaxCalendarOptions {
   manualDeadlines?: ManualTaxDeadline[]
   reverseChargeInvoices?: Pick<IssuedInvoice, 'id' | 'data' | 'numero' | 'documentType' | 'regimeFiscale' | 'totali'>[]
   includeBusinessDeadlines?: boolean
+  payrollDeadlines?: TaxDeadline[]
 }
 
 const paymentInstructions = 'Puoi pagare con modello F24 dal tuo home banking o dal sito dell’Agenzia delle Entrate. Verifica prima codici, anno e importo.'
@@ -305,7 +306,53 @@ export function buildTaxCalendar(
     })
   })
 
+  options.payrollDeadlines?.forEach((deadline) => calendar.push(deadline))
+
   return calendar.sort((left, right) => left.date.localeCompare(right.date))
+}
+
+export interface PayrollTaxAmounts {
+  irpef: number
+  addizionali: number
+  ritenuta1040: number
+  inpsDipendenti: number
+  inpsGestioneSeparata: number
+  pensionFund: number
+}
+
+export function buildPayrollTaxDeadlines(year: number, month: number, amounts: PayrollTaxAmounts): TaxDeadline[] {
+  const periodDate = new Date(Date.UTC(year, month, 16))
+  const date = periodDate.toISOString().slice(0, 10)
+  const periodLabel = `${String(month).padStart(2, '0')}/${year}`
+  const periodYear = year
+  const result: TaxDeadline[] = []
+  const push = (id: string, title: string, description: string, kind: TaxDeadline['kind'], amount: number, f24: F24Field[]) => {
+    if (amount <= 0 && f24.length === 0) return
+    result.push(makeDeadline(
+      year,
+      id,
+      date,
+      title,
+      description,
+      kind,
+      amount,
+      f24,
+      [{ label: title, formula: 'Totale cedolini del periodo', importo: amount, spiegazioneSemplice: 'Importo da versare dopo la liquidazione mensile delle paghe.' }],
+    ))
+  }
+  push(`paghe-irpef-${periodLabel}`, 'IRPEF dipendenti', `Versamento mensile relativo al periodo ${periodLabel}.`, 'redditi', amounts.irpef,
+    amounts.irpef > 0 ? [{ section: 'Erario', code: '1001', year: periodYear, amount: amounts.irpef }] : [])
+  push(`paghe-addizionali-${periodLabel}`, 'Addizionali dipendenti', `Versamento regionale/comunale relativo al periodo ${periodLabel}.`, 'redditi', amounts.addizionali, [
+    ...(amounts.addizionali > 0 ? [{ section: 'Erario' as const, code: '3802', year: periodYear, amount: amounts.addizionali }] : []),
+  ])
+  push(`paghe-1040-${periodLabel}`, 'Ritenuta 1040 occasionali', `Ritenuta lavoro autonomo occasionale del periodo ${periodLabel}.`, 'redditi', amounts.ritenuta1040,
+    amounts.ritenuta1040 > 0 ? [{ section: 'Erario', code: '1040', year: periodYear, amount: amounts.ritenuta1040 }] : [])
+  push(`paghe-dm10-${periodLabel}`, 'INPS dipendenti - DM10', `Contributi dipendenti e azienda del periodo ${periodLabel}.`, 'inps', amounts.inpsDipendenti,
+    amounts.inpsDipendenti > 0 ? [{ section: 'INPS', code: 'DM10', year: periodYear, amount: amounts.inpsDipendenti }] : [])
+  push(`paghe-separata-${periodLabel}`, 'INPS Gestione Separata', `Contributi CXX/C10 relativi al periodo ${periodLabel}.`, 'inps', amounts.inpsGestioneSeparata,
+    amounts.inpsGestioneSeparata > 0 ? [{ section: 'INPS', code: 'CXX', year: periodYear, amount: amounts.inpsGestioneSeparata }] : [])
+  push(`paghe-fondo-${periodLabel}`, 'Fondo Pensione', `Promemoria versamento fondo pensione del periodo ${periodLabel}.`, 'inps', amounts.pensionFund, [])
+  return result
 }
 
 function profileSocialCode(preview: TaxPreview) {

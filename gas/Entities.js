@@ -20,6 +20,23 @@ const ENTITY_STRUCTURE_SHEETS_ = [
   },
   { name: 'Clienti', headers: ['ID', 'Dettaglio JSON'] },
   { name: 'Fornitori', headers: ['ID', 'Dettaglio JSON'] },
+  {
+    name: 'Collaboratori',
+    headers: ['ID', 'Tipo', 'Nome', 'Codice Fiscale', 'IBAN', 'Email', 'Dettaglio JSON']
+  },
+  {
+    name: 'Presenze',
+    headers: ['ID', 'Anno', 'Mese', 'Collaboratore', 'Dettaglio JSON']
+  },
+  {
+    name: 'Cedolini',
+    headers: [
+      'ID', 'Collaboratore', 'Anno', 'Mese', 'Tipologia', 'Lordo', 'Contributi',
+      'Ritenute', 'TFR', 'Fondo pensione', 'Netto', 'Costo azienda', 'Stato',
+      'Drive File ID', 'Drive File URL', 'Linked Issue Tx ID', 'Linked Payment Tx ID',
+      'Dettaglio JSON'
+    ]
+  },
 ];
 const ENTITY_MIGRATED_AUXILIARY_SHEETS_ = [
   {
@@ -223,6 +240,8 @@ function getEntities() {
     try {
       const spreadsheet = SpreadsheetApp.openById(entity.structureSpreadsheetId);
       if (seedBusinessChartOfAccounts_(spreadsheet)) SpreadsheetApp.flush();
+      ensurePayrollSheets_(spreadsheet);
+      SpreadsheetApp.flush();
     } finally {
       lock.releaseLock();
     }

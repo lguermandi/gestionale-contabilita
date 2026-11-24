@@ -1,4 +1,5 @@
 import type { IssuedInvoice } from './invoicing'
+import type { PayslipResult, WorkerProfile } from './payroll'
 
 export interface LedgerMovement {
   conto: string
@@ -216,6 +217,62 @@ export function buildMonthlyIncomeSeries(transactions: LedgerTransaction[], year
     ricavi: fromCents(ricavi),
     costi: fromCents(costi),
   }))
+}
+
+export function buildPayrollIssuePosting(payslip: PayslipResult, worker: WorkerProfile): LedgerMovement[] {
+  const period = `${String(payslip.month).padStart(2, '0')}/${payslip.year}`
+  const description = `Liquidazione paghe ${period} - ${worker.cognome} ${worker.nome}`
+
+  if (payslip.workerType !== 'subordinate') {
+    const compensation = payslip.competenze
+    const isOccasional = payslip.workerType === 'occasional'
+    return [
+      { conto: 'Compensi collaboratori', descrizione: description, gestione: 'Tipica', dare: compensation, avere: 0 },
+      { conto: 'Debiti v/collaboratori', descrizione: description, gestione: '', dare: 0, avere: payslip.netto },
+      { conto: isOccasional ? 'Erario c/ritenute 1040' : 'Erario c/ritenute sportivi', descrizione: description, gestione: '', dare: 0, avere: payslip.ritenutaAcconto + payslip.irpefSports },
+      ...(payslip.inpsGestioneSeparata > 0
+        ? [{ conto: 'Debiti v/INPS Gestione Separata', descrizione: description, gestione: '', dare: 0, avere: payslip.inpsGestioneSeparata }]
+        : []),
+    ]
+  }
+
+  const salary = payslip.competenze
+  const employerInps = payslip.inpsAzienda
+  const inail = payslip.inailAzienda
+  const tfr = payslip.tfrQuotaMese
+  const pensionTfr = payslip.pensionFundTfrContribution
+  const pensionWorker = payslip.pensionFundWorkerContribution
+  const pensionEmployer = payslip.pensionFundEmployerContribution
+  const employeeDebt = payslip.netto
+  const employeeInps = payslip.inpsDipendente
+  const taxDebt = payslip.irpefNetta + payslip.addizionaleRegionale + payslip.addizionaleComunale
+
+  return [
+    { conto: 'Salari e stipendi', descrizione: description, gestione: 'Tipica', dare: salary, avere: 0 },
+    { conto: 'Contributi INPS c/azienda', descrizione: description, gestione: 'Tipica', dare: employerInps + inail, avere: 0 },
+    ...(tfr > 0 ? [{ conto: 'Quota TFR', descrizione: description, gestione: 'Tipica', dare: tfr, avere: 0 }] : []),
+    ...(pensionEmployer + pensionWorker + pensionTfr > 0
+      ? [{ conto: 'Contributi fondo pensione c/azienda', descrizione: description, gestione: 'Tipica', dare: pensionEmployer + pensionWorker + pensionTfr, avere: 0 }]
+      : []),
+    { conto: 'Dipendenti c/retribuzioni', descrizione: description, gestione: '', dare: 0, avere: employeeDebt },
+    { conto: 'Debiti v/INPS', descrizione: description, gestione: '', dare: 0, avere: employeeInps + employerInps + inail },
+    { conto: 'Erario c/ritenute dipendenti', descrizione: description, gestione: '', dare: 0, avere: taxDebt },
+    ...(worker.tfrDestination === 'pension_fund'
+      ? [{ conto: 'Debiti v/Fondo Pensione', descrizione: description, gestione: '', dare: 0, avere: pensionTfr + pensionWorker + pensionEmployer }]
+      : [{ conto: 'Fondo TFR', descrizione: description, gestione: '', dare: 0, avere: tfr }]),
+  ].filter((movement) => movement.dare > 0 || movement.avere > 0)
+}
+
+export function buildPayrollPaymentPosting(payslip: PayslipResult, worker: WorkerProfile): LedgerMovement[] {
+  const period = `${String(payslip.month).padStart(2, '0')}/${payslip.year}`
+  const description = `Bonifico paghe ${period} - ${worker.cognome} ${worker.nome}`
+  const account = payslip.workerType === 'subordinate'
+    ? 'Dipendenti c/retribuzioni'
+    : 'Debiti v/collaboratori'
+  return [
+    { conto: account, descrizione: description, gestione: '', dare: payslip.netto, avere: 0 },
+    { conto: 'Banca c/c', descrizione: description, gestione: '', dare: 0, avere: payslip.netto },
+  ]
 }
 
 export function validateTransaction(transaction: Pick<LedgerTransaction, 'data' | 'movimenti'>) {

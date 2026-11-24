@@ -11,6 +11,7 @@ import {
 } from '../domain/invoicing'
 import type { ExpenseDraft, IssuedExpense } from '../domain/expenses'
 import type { CompanyProfile } from '../stores/profileStore'
+import type { AttendanceInput, PayslipResult, WorkerProfile } from '../domain/payroll'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
   || 'https://script.google.com/macros/s/AKfycbzmqAJU81mMCeIFO0GJboYijh_mHQf_zY73MsBj-YrJwiAoYo97nMb0qkHYkT9ZPi0dIQ/exec'
@@ -237,6 +238,75 @@ export function saveTransaction(token: string, transaction: LedgerTransaction, e
     transaction,
     entity,
     ...(spreadsheetId ? { spreadsheetId } : {}),
+  })
+}
+
+export function fetchPayrollWorkers(token: string, spreadsheetId: string) {
+  return requestGas<WorkerProfile[]>({ action: 'getPayrollWorkers', token, spreadsheetId })
+}
+
+export function savePayrollWorker(token: string, worker: WorkerProfile, spreadsheetId: string) {
+  return requestGas<WorkerProfile>({ action: 'savePayrollWorker', token, worker, spreadsheetId })
+}
+
+export function fetchPayrollAttendance(token: string, year: number, month: number, spreadsheetId: string) {
+  return requestGas<Array<AttendanceInput & { id: string; workerId: string; year: number; month: number }>>({
+    action: 'getPayrollAttendance',
+    token,
+    anno: year,
+    mese: month,
+    spreadsheetId,
+  })
+}
+
+export function savePayrollAttendance(
+  token: string,
+  attendance: AttendanceInput & { id: string; workerId: string; year: number; month: number },
+  spreadsheetId: string,
+) {
+  return requestGas<AttendanceInput & { id: string; workerId: string; year: number; month: number }>({
+    action: 'savePayrollAttendance',
+    token,
+    attendance,
+    spreadsheetId,
+  })
+}
+
+export function fetchPayslips(token: string, year: number, month: number, spreadsheetId: string) {
+  return requestGas<PayslipResult[]>({ action: 'getPayslips', token, anno: year, mese: month, spreadsheetId })
+}
+
+export function savePayslip(token: string, payslip: PayslipResult & Record<string, unknown>, spreadsheetId: string) {
+  return requestGas<PayslipResult & Record<string, unknown>>({ action: 'savePayslip', token, payslip, spreadsheetId })
+}
+
+export function savePayslipPdf(
+  token: string,
+  payslip: PayslipResult & Record<string, unknown>,
+  pdfBase64: string,
+  spreadsheetId: string,
+) {
+  return requestGas<{ fileId: string; fileUrl: string; fileName: string }>({
+    action: 'savePayslipPdf',
+    token,
+    payslip,
+    pdfBase64,
+    spreadsheetId,
+  })
+}
+
+export function sendPayslipEmail(
+  token: string,
+  payslip: PayslipResult & Record<string, unknown>,
+  pdfBase64: string,
+  spreadsheetId: string,
+) {
+  return requestGas<{ sent: boolean; email: string }>({
+    action: 'sendPayslipEmail',
+    token,
+    payslip,
+    pdfBase64,
+    spreadsheetId,
   })
 }
 

@@ -34,6 +34,7 @@ const InvoicesPage = lazy(() => import('./features/invoicing/InvoicesPage').then
 const ExpensesPage = lazy(() => import('./features/expenses/ExpensesPage').then((module) => ({ default: module.ExpensesPage })))
 const TaxPage = lazy(() => import('./features/tax/TaxPage').then((module) => ({ default: module.TaxPage })))
 const CompanySettingsPage = lazy(() => import('./features/settings/CompanySettingsPage').then((module) => ({ default: module.CompanySettingsPage })))
+const PayrollPage = lazy(() => import('./features/payroll/PayrollPage').then((module) => ({ default: module.PayrollPage })))
 
 function BusinessOnly({ children }: { children: ReactNode }) {
   const activeEntity = useEntityStore((state) => state.entities.find(
@@ -370,7 +371,7 @@ function AppShell() {
   )
   const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() + 1 - index)
   const visibleNavigation = activeProfile === 'business'
-    ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, { label: 'Spese', to: '/spese' }, { label: 'Tasse e scadenze', to: '/tasse' }, navigation[3]]
+    ? [...navigation.slice(0, 3), { label: 'Fatturazione', to: '/fatturazione' }, { label: 'Spese', to: '/spese' }, { label: 'Paghe e collaboratori', to: '/paghe' }, { label: 'Tasse e scadenze', to: '/tasse' }, navigation[3]]
     : [...navigation.slice(0, 3), { label: 'Analisi storiche', to: '/analisi' }, { label: 'Tasse e scadenze', to: '/tasse' }, navigation[3]]
 
   useEffect(() => {
@@ -486,6 +487,7 @@ function AppShell() {
             <Route path="/analisi" element={<PrivateOnly><HistoricalAnalysisPage /></PrivateOnly>} />
             <Route path="/fatturazione" element={<BusinessOnly><InvoicesPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/spese" element={<BusinessOnly><ExpensesPage key={year} year={year} /></BusinessOnly>} />
+            <Route path="/paghe" element={<BusinessOnly><PayrollPage key={year} year={year} /></BusinessOnly>} />
             <Route path="/tasse" element={<TaxPage />} />
             <Route path="/impostazioni" element={<CompanySettingsPage onRetryProfileLoad={() => setProfileRetryCount((count) => count + 1)} />} />
             <Route path="*" element={<Navigate to="/" replace />} />

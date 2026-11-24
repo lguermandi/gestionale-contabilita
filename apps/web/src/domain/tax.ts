@@ -1,4 +1,5 @@
 import type { LedgerTransaction } from './accounting'
+import type { PayslipResult } from './payroll'
 
 export type FiscalEntityType = 'persona_fisica' | 'societa' | 'ente'
 export type SocialSecurityScheme = 'nessuna' | 'gestione_separata' | 'artigiani' | 'commercianti'
@@ -99,6 +100,25 @@ export interface TaxInvoiceReceipt {
   }
   pagamento?: { incassata?: boolean }
   payments?: Array<{ data: string; importo: number }>
+}
+
+export const FORFETTARIO_PAYROLL_THRESHOLD = 20_000
+
+export function calculatePayrollAnnualThreshold(payslips: PayslipResult[], year: number) {
+  const total = payslips
+    .filter((payslip) => payslip.year === year)
+    .reduce((sum, payslip) => sum + payslip.competenze
+      + payslip.inpsAzienda + payslip.inailAzienda
+      + payslip.tfrQuotaMese + payslip.inpsGestioneSeparataAzienda
+      + payslip.pensionFundEmployerContribution + payslip.pensionFundTfrContribution, 0)
+  const rounded = roundEuro(total)
+  return {
+    total: rounded,
+    threshold: FORFETTARIO_PAYROLL_THRESHOLD,
+    percentage: roundEuro(rounded / FORFETTARIO_PAYROLL_THRESHOLD * 100),
+    exceeded: rounded > FORFETTARIO_PAYROLL_THRESHOLD,
+    attention: rounded >= FORFETTARIO_PAYROLL_THRESHOLD * 0.8,
+  }
 }
 
 export const FISCAL_REGIME_OPTIONS: Array<{ code: string; label: string }> = [

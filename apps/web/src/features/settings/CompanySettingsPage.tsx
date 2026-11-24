@@ -331,7 +331,7 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
                   <input className={inputClass} type="number" min="0" max="100" step="0.01" value={profile.aliquotaGestioneSeparata ?? 26.07}
                     onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, aliquotaGestioneSeparata: Number(event.target.value) })) }} />
                 </label>
-                <label className="block text-sm text-stone-700">Contributo fisso annuo Artigiani/Commercianti (€)
+                <label className="block text-sm text-stone-700">Contributo fisso annuo Artigiani/Commerc. (€)
                   <input className={inputClass} type="number" min="0" step="0.01" value={profile.contributoFissoAnnuale ?? 4400}
                     onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, contributoFissoAnnuale: Number(event.target.value) })) }} />
                 </label>
@@ -343,7 +343,7 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
                   <input className={inputClass} type="number" min="0" max="100" step="0.01" value={profile.aliquotaEccedenzaInps ?? 24}
                     onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, aliquotaEccedenzaInps: Number(event.target.value) })) }} />
                 </label>
-                <label className="block text-sm text-stone-700">Saldo ancora da versare dell’anno precedente (€)
+                <label className="block text-sm text-stone-700">Saldo ancora da versare anno precedente (€)
                   <input className={inputClass} type="number" min="0" step="0.01" value={profile.saldoAnnoPrecedente ?? 0}
                     onChange={(event) => { setSaved(false); setProfile((current) => ({ ...current, saldoAnnoPrecedente: Number(event.target.value) })) }} />
                 </label>

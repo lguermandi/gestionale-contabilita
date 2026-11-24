@@ -1,7 +1,8 @@
 import Dexie, { type Table } from 'dexie'
 import { Network } from '@capacitor/network'
-import { saveTransaction } from '../api/ledgerApi'
+import { registerDocumentPayment, saveTransaction } from '../api/ledgerApi'
 import type { LedgerTransaction } from '../domain/accounting'
+import type { InvoicePayment } from '../domain/invoicing'
 
 export type LedgerEntity = 'private' | 'business'
 export type LocalSyncStatus = 'pending' | 'synced'
@@ -12,6 +13,11 @@ export interface LocalLedgerRecord {
     spreadsheetId?: string
     year: number
     transaction: LedgerTransaction
+    documentPayment?: {
+        documentType: 'invoice' | 'expense'
+        documentId: string
+        payment: InvoicePayment
+    }
     status: LocalSyncStatus
     createdAt: number
     syncedAt?: number
@@ -37,13 +43,21 @@ export async function queueTransaction(
     transaction: LedgerTransaction,
     entity: LedgerEntity,
     spreadsheetId?: string,
+    documentPayment?: LocalLedgerRecord['documentPayment'],
 ): Promise<void> {
+    if (documentPayment
+        && (documentPayment.payment.linkedTransactionId !== transaction.id
+            || transaction.relatedDocumentType !== documentPayment.documentType
+            || transaction.relatedDocumentId !== documentPayment.documentId)) {
+        throw new Error('Il pagamento offline non corrisponde al documento o alla registrazione collegata.')
+    }
     await offlineLedger.records.put({
         id: spreadsheetId ? `${spreadsheetId}:${transaction.id}` : transaction.id,
         entity,
         spreadsheetId,
         year: Number(transaction.data.slice(0, 4)),
         transaction,
+        documentPayment,
         status: 'pending',
         createdAt: Date.now(),
     })
@@ -83,6 +97,7 @@ export interface SyncSummary {
 interface SyncOptions {
     isOnline?: () => Promise<boolean>
     send?: typeof saveTransaction
+    sendDocumentPayment?: typeof registerDocumentPayment
 }
 
 let activeSync: Promise<SyncSummary> | null = null
@@ -103,7 +118,19 @@ async function doSync(token: string, options: SyncOptions): Promise<SyncSummary>
     const pending = await getPendingTransactions()
     let synced = 0
     for (const localRecord of pending) {
-        if (localRecord.spreadsheetId) {
+        if (localRecord.documentPayment) {
+            if (!localRecord.spreadsheetId) {
+                throw new Error('La registrazione del pagamento richiede lo spreadsheet dell’entità.')
+            }
+            const sendPayment = options.sendDocumentPayment ?? registerDocumentPayment
+            await sendPayment(
+                token,
+                localRecord.documentPayment.documentType,
+                localRecord.documentPayment.documentId,
+                localRecord.documentPayment.payment,
+                localRecord.spreadsheetId,
+            )
+        } else if (localRecord.spreadsheetId) {
             await send(token, localRecord.transaction, localRecord.entity, localRecord.spreadsheetId)
         } else {
             await send(token, localRecord.transaction, localRecord.entity)

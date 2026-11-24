@@ -39,12 +39,16 @@ function doPost(event) {
       data = { loggedOut: true };
     } else if (payload.action === 'getTransactions') {
       data = getTransactions_(payload.token, payload.anno, payload.entity, payload.spreadsheetId);
+    } else if (payload.action === 'getChartOfAccounts') {
+      data = getChartOfAccounts_(payload.token, payload.spreadsheetId);
     } else if (payload.action === 'getTransactionHistory') {
       data = getTransactionHistory_(payload.token, payload.anno, payload.entity, payload.spreadsheetId);
     } else if (payload.action === 'appendTransaction') {
       data = appendTransaction_(payload.token, payload.transaction, payload.entity, payload.spreadsheetId);
     } else if (payload.action === 'getInvoices') {
       data = getInvoices_(payload.token, payload.anno, payload.spreadsheetId);
+    } else if (payload.action === 'registerDocumentPayment') {
+      data = registerDocumentPayment_(payload.token, payload.documentType, payload.documentId, payload.payment, payload.spreadsheetId);
     } else if (payload.action === 'getCustomers') {
       data = getCustomers_(payload.token, payload.spreadsheetId);
     } else if (payload.action === 'saveCustomer') {
@@ -314,6 +318,38 @@ function normalizeCompanyProfile_(source) {
   return profile;
 }
 
+function getChartOfAccounts_(token, spreadsheetId) {
+  requireSession_(token);
+  if (!spreadsheetId) throw new Error('Seleziona un’entità aziendale per leggere il Piano dei Conti.');
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+  if (!spreadsheet) throw new Error('Il foglio dell’entità selezionata non è disponibile.');
+  const sheet = spreadsheet.getSheetByName('Piano_Conti');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0].map(value => String(value || '').trim().toLowerCase());
+  const column = name => headers.indexOf(name.toLowerCase());
+  const codiceIndex = column('Codice');
+  const descriptionIndex = column('Descrizione');
+  const typeIndex = column('Tipo');
+  const managementIndex = column('Gestione');
+  const activeIndex = column('Attivo');
+  if ([codiceIndex, descriptionIndex, typeIndex].some(index => index < 0)) {
+    throw new Error('Le intestazioni del Piano dei Conti non sono valide.');
+  }
+  return rows.slice(1).map(row => {
+    const activeValue = activeIndex < 0 ? true : row[activeIndex];
+    const isActive = activeValue !== false && activeValue !== 0
+      && !['false', 'no', '0'].includes(String(activeValue).trim().toLowerCase());
+    return {
+      codice: String(row[codiceIndex] || '').trim(),
+      descrizione: String(row[descriptionIndex] || '').trim(),
+      tipo: String(row[typeIndex] || '').trim(),
+      gestione: managementIndex >= 0 ? String(row[managementIndex] || '').trim() : '',
+      attivo: isActive,
+    };
+  }).filter(account => account.codice && account.descrizione && account.attivo);
+}
+
 function getTransactions_(token, anno, entity, spreadsheetId) {
   requireSession_(token);
   const year = String(anno || '');
@@ -328,7 +364,8 @@ function getTransactions_(token, anno, entity, spreadsheetId) {
     throw new Error('Non esiste un foglio contabile per l\'anno ' + year + '.');
   }
   const lastRow = sheet.getLastRow();
-  const rows = lastRow ? sheet.getRange(1, 1, lastRow, 7).getValues() : [];
+  const width = Math.max(7, sheet.getLastColumn());
+  const rows = lastRow ? sheet.getRange(1, 1, lastRow, width).getValues() : [];
   return parseTransactions_(rows);
 }
 
@@ -354,7 +391,8 @@ function getTransactionHistory_(token, anno, entity, spreadsheetId) {
       .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
     transactions = sheets.flatMap(item => {
       const lastRow = item.sheet.getLastRow();
-      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
+      const width = Math.max(7, item.sheet.getLastColumn());
+      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, width).getValues()) : [];
     });
     years = sheets.map(item => Number(item.match[1]));
   } else {
@@ -365,7 +403,8 @@ function getTransactionHistory_(token, anno, entity, spreadsheetId) {
       .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
     transactions = sheets.flatMap(item => {
       const lastRow = item.sheet.getLastRow();
-      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, 7).getValues()) : [];
+      const width = Math.max(7, item.sheet.getLastColumn());
+      return lastRow ? parseTransactions_(item.sheet.getRange(1, 1, lastRow, width).getValues()) : [];
     });
     years = sheets.map(item => Number(item.match[1]));
   }
@@ -436,6 +475,7 @@ function appendTransaction_(token, transaction, entity, spreadsheetId) {
     }
     if (!sheet && entity === 'business' && spreadsheet) sheet = spreadsheet.insertSheet(sheetName);
     if (!sheet) throw new Error('Non esiste un foglio contabile per l\'anno ' + year + '.');
+    ensureMovementHeaders_(sheet);
     const lastRow = sheet.getLastRow();
     if (lastRow > 0) {
       const existingIds = sheet.getRange(1, 2, lastRow, 1).getValues().flat();
@@ -443,7 +483,19 @@ function appendTransaction_(token, transaction, entity, spreadsheetId) {
         return { id: id, duplicate: true };
       }
     }
-    sheet.getRange(lastRow + 1, 1, rows.length, 7).setValues(rows);
+    const documentType = sanitizeString_(transaction && transaction.relatedDocumentType);
+    const documentId = sanitizeString_(transaction && transaction.relatedDocumentId);
+    if (documentType && !['invoice', 'expense', 'credit-note'].includes(documentType)) {
+      throw new Error('Tipo documento collegato non valido.');
+    }
+    if (Boolean(documentType) !== Boolean(documentId)) {
+      throw new Error('Riferimento al documento collegato incompleto.');
+    }
+    if (documentId && !/^[0-9a-f-]{36}$/i.test(documentId)) {
+      throw new Error('Identificativo del documento collegato non valido.');
+    }
+    const storedRows = rows.map(row => row.concat([documentType, documentId]));
+    writeMovementRows_(sheet, storedRows);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
@@ -469,9 +521,157 @@ function getInvoices_(token, anno, spreadsheetId) {
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
-    .filter(row => String(row[1]) === year && row[6] === 'emessa')
+    .filter(row => row[6] === 'emessa')
     .map(row => JSON.parse(row[7]))
+    .filter(invoice => String(invoice.data || '').slice(0, 4) === year
+      || (Array.isArray(invoice.payments) && invoice.payments.some(payment => String(payment.data || '').slice(0, 4) === year))
+      || hasReverseChargeDeadlineInYear_(invoice, year))
     .sort((left, right) => right.numero.localeCompare(left.numero));
+}
+
+function hasReverseChargeDeadlineInYear_(invoice, year) {
+  const documentType = String(invoice.documentType || invoice.tipoDocumento || '');
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(invoice.data || ''));
+  if (!match || !['TD16', 'TD17', 'TD18', 'TD19'].includes(documentType)) return false;
+  const issueYear = Number(match[1]);
+  const issueMonth = Number(match[2]);
+  if (issueMonth < 1 || issueMonth > 12) return false;
+  return issueYear + (issueMonth === 12 ? 1 : 0) === Number(year);
+}
+
+function registerDocumentPayment_(token, documentType, documentId, sourcePayment, spreadsheetId) {
+  requireSession_(token);
+  if (!['invoice', 'expense'].includes(String(documentType || ''))) {
+    throw new Error('Tipo documento non valido per la registrazione del pagamento.');
+  }
+  const id = String(documentId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Identificativo documento non valido.');
+  const source = sourcePayment || {};
+  const date = String(source.data || '');
+  const parsedDate = new Date(date + 'T00:00:00.000Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)
+    || isNaN(parsedDate.getTime())
+    || parsedDate.toISOString().slice(0, 10) !== date) {
+    throw new Error('Data del pagamento non valida.');
+  }
+  const amountCents = Math.round(Number(source.importo) * 100);
+  const account = sanitizeString_(source.conto);
+  const transactionId = String(source.linkedTransactionId || '');
+  if (!isFinite(amountCents) || amountCents <= 0 || !account
+    || !/^[0-9a-f-]{36}$/i.test(transactionId)) {
+    throw new Error('Importo, conto o identificativo del pagamento non valido.');
+  }
+
+  const spreadsheet = getSpreadsheetForSession_(token, spreadsheetId);
+  const movementsSpreadsheet = getMovementSpreadsheetForSession_(token, spreadsheetId);
+  if (!spreadsheet || !movementsSpreadsheet) {
+    throw new Error('Il progetto Apps Script non è collegato al foglio contabile.');
+  }
+  const sheetName = documentType === 'invoice' ? 'Fatture' : 'Spese';
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  const rowIndex = sheet ? findBusinessDocumentRow_(sheet, id) : 0;
+  if (!rowIndex) throw new Error('Documento non trovato o non ancora registrato.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const document = JSON.parse(sheet.getRange(rowIndex, 8).getValue());
+    const payments = Array.isArray(document.payments) ? document.payments : [];
+    const existing = payments.find(payment => payment.linkedTransactionId === transactionId);
+    if (existing) {
+      return { payment: existing, duplicate: true, remaining: getDocumentPaymentRemainingCents_(documentType, document, payments) / 100 };
+    }
+
+    const isInvoice = documentType === 'invoice';
+    const invoiceType = String(document.documentType || document.tipoDocumento || 'TD01');
+    if (isInvoice && (invoiceType === 'TD04' || ['TD16', 'TD17', 'TD18', 'TD19'].includes(invoiceType))) {
+      throw new Error('Il documento selezionato non è un credito v/clienti da incassare.');
+    }
+    if (!isInvoice && (document.tipoDocumento || 'TD01') === 'TD04') {
+      throw new Error('Una nota di credito fornitore non può essere registrata come pagamento.');
+    }
+
+    const totalCents = isInvoice
+      ? Math.round(Number(document.totali && document.totali.totale) * 100)
+      : Math.round(Number(document.totale) * 100);
+    const paidCents = isInvoice && document.pagamento && document.pagamento.incassata && payments.length === 0
+      ? totalCents
+      : payments.reduce((sum, payment) => sum + Math.max(0, Math.round(Number(payment.importo) * 100)), 0);
+    const remainingCents = Math.max(0, totalCents - paidCents);
+    if (!isFinite(totalCents) || totalCents <= 0 || amountCents > remainingCents) {
+      throw new Error('L’importo supera il residuo ancora da saldare.');
+    }
+
+    const payment = {
+      data: date,
+      importo: amountCents / 100,
+      conto: account,
+      linkedTransactionId: transactionId
+    };
+    const counterparty = isInvoice
+      ? sanitizeString_(document.cliente && document.cliente.ragioneSociale)
+      : sanitizeString_(document.fornitore && document.fornitore.ragioneSociale);
+    const documentNumber = sanitizeString_(document.numero || document.numeroDocumento);
+    const description = ((isInvoice ? 'Incasso fattura ' : 'Pagamento fornitore ')
+      + documentNumber + ' - ' + counterparty).slice(0, 200);
+    const counterpartyAccount = isInvoice
+      ? sanitizeString_(document.conti && document.conti.clienti)
+      : sanitizeString_(document.conti && document.conti.fornitori);
+    if (!counterpartyAccount) throw new Error('Conto clienti o fornitori non configurato nel documento.');
+    const movements = isInvoice
+      ? [
+          { conto: account, dare: payment.importo, avere: 0 },
+          { conto: counterpartyAccount, dare: 0, avere: payment.importo }
+        ]
+      : [
+          { conto: counterpartyAccount, dare: payment.importo, avere: 0 },
+          { conto: account, dare: 0, avere: payment.importo }
+        ];
+    const ledger = getEntityLedgerSheet_(movementsSpreadsheet, date.slice(0, 4), spreadsheetId);
+    ensureMovementHeaders_(ledger);
+    if (!ledgerHasTransaction_(ledger, transactionId)) {
+      const rows = movements.map(movement => [
+        date, transactionId, movement.conto, description, '', movement.dare, movement.avere,
+        documentType, id
+      ]);
+      writeMovementRows_(ledger, rows);
+    }
+
+    document.payments = payments.concat([payment]);
+    if (isInvoice) {
+      document.pagamento = Object.assign({}, document.pagamento || {}, {
+        incassata: paidCents + amountCents >= totalCents
+      });
+    }
+    sheet.getRange(rowIndex, 8).setValue(JSON.stringify(document));
+    SpreadsheetApp.flush();
+    return {
+      payment: payment,
+      duplicate: false,
+      remaining: Math.max(0, totalCents - paidCents - amountCents) / 100
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function findBusinessDocumentRow_(sheet, id) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
+  const index = ids.indexOf(id);
+  return index < 0 ? 0 : index + 2;
+}
+
+function getDocumentPaymentRemainingCents_(documentType, document, payments) {
+  const totalCents = documentType === 'invoice'
+    ? Math.round(Number(document.totali && document.totali.totale) * 100)
+    : Math.round(Number(document.totale) * 100);
+  const paidCents = documentType === 'invoice' && document.pagamento
+    && document.pagamento.incassata && payments.length === 0
+    ? totalCents
+    : payments.reduce((sum, payment) => sum + Math.max(0, Math.round(Number(payment.importo) * 100)), 0);
+  return Math.max(0, totalCents - paidCents);
 }
 
 function getCustomers_(token, spreadsheetId) {
@@ -623,11 +823,12 @@ function issueCreditNote_(token, source, spreadsheetId) {
     const number = issued.numero;
     const creditRows = creditNoteJournalMovements_(invoice, amountCents).map(movement => [
       issued.data, id, movement.conto, ('Nota di credito ' + number + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200),
-      movement.gestione, movement.dare, movement.avere
+      movement.gestione, movement.dare, movement.avere, 'credit-note', issued.id
     ]);
     const ledger = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
+    ensureMovementHeaders_(ledger);
     if (!ledgerHasTransaction_(ledger, id)) {
-      ledger.getRange(ledger.getLastRow() + 1, 1, creditRows.length, 7).setValues(creditRows);
+      writeMovementRows_(ledger, creditRows);
     }
     issued.stato = 'emessa';
     notesSheet.getRange(rowIndex, 7, 1, 2).setValues([['emessa', JSON.stringify(issued)]]);
@@ -663,7 +864,9 @@ function creditNoteJournalMovements_(invoice, amountCents) {
   }));
   const debitCents = reversed.reduce((sum, movement) => sum + Math.round(movement.dare * 100), 0);
   const creditCents = reversed.reduce((sum, movement) => sum + Math.round(movement.avere * 100), 0);
-  const revenue = reversed.find(movement => movement.conto === invoice.conti.ricavi && movement.dare > 0);
+  const revenue = reversed
+    .filter(movement => movement.dare > 0 && movement.gestione === invoice.conti.gestione)
+    .sort((left, right) => right.dare - left.dare)[0];
   if (!revenue) throw new Error('La fattura non contiene un conto ricavi stornabile.');
   revenue.dare = Math.round((revenue.dare * 100 + creditCents - debitCents)) / 100;
   if (revenue.dare <= 0) throw new Error('L’importo è troppo piccolo per generare una nota di credito bilanciata.');
@@ -717,8 +920,10 @@ function getExpenses_(token, anno, spreadsheetId) {
   const sheet = spreadsheet && spreadsheet.getSheetByName('Spese');
   if (!sheet || sheet.getLastRow() < 2) return [];
   return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues()
-    .filter(row => String(row[1]) === year && row[6] === 'registrata')
+    .filter(row => row[6] === 'registrata')
     .map(row => JSON.parse(row[7]))
+    .filter(expense => String(expense.data || '').slice(0, 4) === year
+      || (Array.isArray(expense.payments) && expense.payments.some(payment => String(payment.data || '').slice(0, 4) === year)))
     .sort((left, right) => right.data.localeCompare(left.data));
 }
 
@@ -730,6 +935,30 @@ function issueExpense_(token, source, spreadsheetId) {
   const date = new Date(data + 'T00:00:00.000Z');
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Identificativo spesa non valido.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== data) throw new Error('Data spesa non valida.');
+  const dataScadenza = String(expense.dataScadenza || '');
+  if (dataScadenza) {
+    const dueDate = new Date(dataScadenza + 'T00:00:00.000Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataScadenza)
+      || isNaN(dueDate.getTime())
+      || dueDate.toISOString().slice(0, 10) !== dataScadenza) {
+      throw new Error('Data di scadenza spesa non valida.');
+    }
+  }
+  const tipoDocumento = sanitizeString_(expense.tipoDocumento || expense.documentType) || 'TD01';
+  if (!/^TD\d{2}$/.test(tipoDocumento)) throw new Error('Tipo documento FatturaPA non valido.');
+  const linkedAutofatturaType = sanitizeString_(expense.linkedAutofatturaType);
+  const linkedAutofatturaId = sanitizeString_(expense.linkedAutofatturaId);
+  if (linkedAutofatturaType && !['TD17', 'TD18'].includes(linkedAutofatturaType)) {
+    throw new Error('Tipo di autofattura collegata non valido.');
+  }
+  if (linkedAutofatturaType && !/^[0-9a-f-]{36}$/i.test(linkedAutofatturaId)) {
+    throw new Error('Identificativo autofattura collegata non valido.');
+  }
+  const aliquotaIvaAutofattura = Number(expense.aliquotaIvaAutofattura || 0);
+  if (linkedAutofatturaType
+    && (!isFinite(aliquotaIvaAutofattura) || aliquotaIvaAutofattura <= 0 || aliquotaIvaAutofattura > 100)) {
+    throw new Error('Aliquota IVA per l’autofattura collegata non valida.');
+  }
   const sourceLines = Array.isArray(expense.righe) && expense.righe.length
     ? expense.righe
     : [{ conto: expense.conto, imponibile: expense.imponibile, aliquotaIva: expense.aliquotaIva }];
@@ -744,6 +973,7 @@ function issueExpense_(token, source, spreadsheetId) {
     return {
       id: String(line.id || ''),
       conto: conto,
+      descrizione: sanitizeString_(line.descrizione),
       imponibile: imponibileCents / 100,
       aliquotaIva: rate,
       imponibileCents: imponibileCents,
@@ -753,6 +983,18 @@ function issueExpense_(token, source, spreadsheetId) {
   const imponibileCents = righe.reduce((sum, line) => sum + line.imponibileCents, 0);
   const ivaCents = righe.reduce((sum, line) => sum + line.ivaCents, 0);
   const totaleCents = imponibileCents + ivaCents;
+  const declaredAmounts = {
+    imponibileDocumentoDichiarato: expense.imponibileDocumentoDichiarato,
+    ivaDocumentoDichiarata: expense.ivaDocumentoDichiarata,
+    totaleDocumentoDichiarato: expense.totaleDocumentoDichiarato
+  };
+  Object.keys(declaredAmounts).forEach(key => {
+    if (declaredAmounts[key] !== undefined
+      && (!isFinite(Number(declaredAmounts[key])) || Number(declaredAmounts[key]) < 0)) {
+      throw new Error('Riepilogo importi XML non valido.');
+    }
+    if (declaredAmounts[key] !== undefined) declaredAmounts[key] = Math.round(Number(declaredAmounts[key]) * 100) / 100;
+  });
   const supplier = normalizeCustomer_(expense.fornitore);
   const allowedExpenseTypes = ['fattura', 'ricevuta', 'spesa personale'];
   const tipo = String(expense.tipo || 'fattura');
@@ -796,11 +1038,19 @@ function issueExpense_(token, source, spreadsheetId) {
     if (!issued) {
       issued = {
         id: id, tipo: tipo, data: data, numeroDocumento: sanitizeString_(expense.numeroDocumento),
+        tipoDocumento: tipoDocumento, dataScadenza: dataScadenza,
+        imponibileDocumentoDichiarato: declaredAmounts.imponibileDocumentoDichiarato,
+        ivaDocumentoDichiarata: declaredAmounts.ivaDocumentoDichiarata,
+        totaleDocumentoDichiarato: declaredAmounts.totaleDocumentoDichiarato,
         fornitore: supplier, descrizione: descrizione, righe: righe.map(line => ({
-          id: line.id, conto: line.conto, imponibile: line.imponibile, aliquotaIva: line.aliquotaIva
+          id: line.id, conto: line.conto, descrizione: line.descrizione,
+          imponibile: line.imponibile, aliquotaIva: line.aliquotaIva
         })),
         conto: righe[0].conto, imponibile: imponibileCents / 100, aliquotaIva: righe[0].aliquotaIva,
         iva: ivaCents / 100, totale: totaleCents / 100,
+        linkedAutofatturaId: linkedAutofatturaId,
+        linkedAutofatturaType: linkedAutofatturaType || undefined,
+        aliquotaIvaAutofattura: aliquotaIvaAutofattura || undefined,
         note: sanitizeString_(expense.note), stato: 'da pagare',
         allegatoSalvato: savedAttachment,
         conti: {
@@ -816,22 +1066,31 @@ function issueExpense_(token, source, spreadsheetId) {
       ]]);
     }
     const ledger = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
+    ensureMovementHeaders_(ledger);
     const accounts = issued.conti || expense.conti || {};
     const vatAccount = sanitizeString_(accounts.ivaCredito) || 'IVA a credito';
     const supplierAccount = sanitizeString_(accounts.fornitori) || 'Debiti v/fornitori';
     const management = sanitizeString_(accounts.gestione) || 'Tipica';
-    const movements = [
-      ...righe.map(line => ({ conto: line.conto, gestione: management, dare: line.imponibile, avere: 0 })),
-      ...(ivaCents > 0 ? [{ conto: vatAccount, gestione: '', dare: ivaCents / 100, avere: 0 }] : []),
-      { conto: supplierAccount, gestione: '', dare: 0, avere: totaleCents / 100 }
-    ];
+    const isCreditNote = tipoDocumento === 'TD04';
+    const movements = isCreditNote
+      ? [
+          { conto: supplierAccount, gestione: '', dare: totaleCents / 100, avere: 0 },
+          ...righe.map(line => ({ conto: line.conto, gestione: management, dare: 0, avere: line.imponibile })),
+          ...(ivaCents > 0 ? [{ conto: vatAccount, gestione: '', dare: 0, avere: ivaCents / 100 }] : [])
+        ]
+      : [
+          ...righe.map(line => ({ conto: line.conto, gestione: management, dare: line.imponibile, avere: 0 })),
+          ...(ivaCents > 0 ? [{ conto: vatAccount, gestione: '', dare: ivaCents / 100, avere: 0 }] : []),
+          { conto: supplierAccount, gestione: '', dare: 0, avere: totaleCents / 100 }
+        ];
     const journalRows = movements.map(movement => [
       data, id, movement.conto,
-      ('Fattura fornitore ' + (issued.numeroDocumento || '') + ' - ' + supplier.ragioneSociale).slice(0, 200),
-      movement.gestione, movement.dare, movement.avere
+      ((isCreditNote ? 'Nota di credito fornitore ' : 'Fattura fornitore ')
+        + (issued.numeroDocumento || '') + ' - ' + supplier.ragioneSociale).slice(0, 200),
+      movement.gestione, movement.dare, movement.avere, 'expense', issued.id
     ]);
     if (!ledgerHasTransaction_(ledger, id)) {
-      ledger.getRange(ledger.getLastRow() + 1, 1, journalRows.length, 7).setValues(journalRows);
+      writeMovementRows_(ledger, journalRows);
     }
     sheet.getRange(rowIndex, 5, 1, 4).setValues([[
       issued.totale, issued.numeroDocumento, 'registrata', JSON.stringify(issued)
@@ -1014,6 +1273,51 @@ function getEntityLedgerSheet_(spreadsheet, year, spreadsheetId) {
     : getOrCreateSheet_(spreadsheet, ledgerSheetName_(year, 'business'));
 }
 
+function ensureMovementHeaders_(sheet) {
+  if (!sheet) return;
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, ENTITY_MOVEMENT_HEADERS_.length)
+      .setValues([ENTITY_MOVEMENT_HEADERS_])
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    return;
+  }
+  const width = Math.max(7, sheet.getLastColumn());
+  const headers = sheet.getRange(1, 1, 1, width).getValues()[0];
+  if (String(headers[0] || '').trim().toLowerCase() !== 'data') return;
+  ['Documento_Tipo', 'Documento_ID'].forEach(name => {
+    const existingColumn = headers.indexOf(name);
+    if (existingColumn >= 0) {
+      if (existingColumn < 7) throw new Error('Intestazione documento in una colonna contabile riservata.');
+      return;
+    }
+    let column = headers.findIndex((value, index) => index >= 7 && !String(value || '').trim());
+    if (column < 0) column = headers.length;
+    sheet.getRange(1, column + 1).setValue(name).setFontWeight('bold');
+    headers[column] = name;
+  });
+}
+
+function writeMovementRows_(sheet, sourceRows) {
+  if (!sourceRows.length) return;
+  ensureMovementHeaders_(sheet);
+  const width = Math.max(ENTITY_MOVEMENT_HEADERS_.length, sheet.getLastColumn());
+  const headers = sheet.getRange(1, 1, 1, width).getValues()[0].map(value => String(value || '').trim());
+  const documentTypeColumn = headers.indexOf('Documento_Tipo');
+  const documentIdColumn = headers.indexOf('Documento_ID');
+  if (documentTypeColumn < 7 || documentIdColumn < 7) {
+    throw new Error('Intestazioni per i riferimenti ai documenti non disponibili.');
+  }
+  const rows = sourceRows.map(source => {
+    const row = new Array(width).fill('');
+    for (let column = 0; column < 7; column += 1) row[column] = source[column];
+    row[documentTypeColumn] = source[7] || '';
+    row[documentIdColumn] = source[8] || '';
+    return row;
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, width).setValues(rows);
+}
+
 function getOrCreateEntityYearSheet_(spreadsheet, year) {
   const sheetName = String(year);
   let sheet = spreadsheet.getSheetByName(sheetName);
@@ -1041,6 +1345,7 @@ function issueInvoice_(token, source, spreadsheetId) {
       'ID', 'Anno', 'Numero', 'Data', 'Cliente', 'Totale', 'Stato', 'Dettaglio JSON'
     ]);
     const ledgerSheet = getEntityLedgerSheet_(movementsSpreadsheet, year, spreadsheetId);
+    ensureMovementHeaders_(ledgerSheet);
     const existingRow = findInvoiceRow_(invoiceSheet, invoice.id);
     let issued;
     let rowIndex = existingRow;
@@ -1069,9 +1374,9 @@ function issueInvoice_(token, source, spreadsheetId) {
       const movements = invoiceJournalMovements_(issued);
       const rows = movements.map(movement => [
         issued.data, issued.id, movement.conto, movement.descrizione,
-        movement.gestione, movement.dare, movement.avere
+        movement.gestione, movement.dare, movement.avere, 'invoice', issued.id
       ]);
-      ledgerSheet.getRange(ledgerSheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
+      writeMovementRows_(ledgerSheet, rows);
     }
 
     issued.stato = 'emessa';
@@ -1216,13 +1521,28 @@ function normalizeInvoice_(source) {
 
   const lines = invoice.linee;
   if (!Array.isArray(lines) || lines.length < 1 || lines.length > 100) throw new Error('Numero di voci fattura non valido.');
+  const documentType = sanitizeString_(invoice.documentType || invoice.tipoDocumento) || 'TD01';
+  const regimeFiscale = sanitizeString_(invoice.regimeFiscale) || 'RF01';
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(documentType);
+  const linkedInvoiceNumber = sanitizeString_(invoice.linkedInvoiceNumber);
+  const linkedInvoiceDate = String(invoice.linkedInvoiceDate || '');
+  if (documentType === 'TD04') {
+    const linkedDate = new Date(linkedInvoiceDate + 'T00:00:00.000Z');
+    if (!linkedInvoiceNumber
+      || !/^\d{4}-\d{2}-\d{2}$/.test(linkedInvoiceDate)
+      || isNaN(linkedDate.getTime())
+      || linkedDate.toISOString().slice(0, 10) !== linkedInvoiceDate) {
+      throw new Error('Riferimento alla fattura originaria non valido per la nota di credito.');
+    }
+  }
   const linee = lines.map(line => {
     const quantita = Number(line.quantita);
     const prezzoUnitario = Number(line.prezzoUnitario);
     const descrizione = sanitizeString_(line.descrizione);
-    const aliquotaIva = line.aliquotaIva === undefined || line.aliquotaIva === null
+    const sourceRate = line.aliquotaIva === undefined || line.aliquotaIva === null
       ? Number(invoice.aliquotaIva)
       : Number(line.aliquotaIva);
+    const aliquotaIva = regimeFiscale === 'RF19' && !reverseCharge ? 0 : sourceRate;
     if (!descrizione || !isFinite(quantita) || quantita <= 0 || !isFinite(prezzoUnitario) || prezzoUnitario < 0) {
       throw new Error('Voce fattura non valida.');
     }
@@ -1233,6 +1553,9 @@ function normalizeInvoice_(source) {
       quantita,
       prezzoUnitario,
       aliquotaIva,
+      revenueAccount: sanitizeString_(line.revenueAccount),
+      costAccount: sanitizeString_(line.costAccount),
+      atecoCode: sanitizeString_(line.atecoCode),
       naturaIva: sanitizeString_(line.naturaIva),
       riferimentoAmministrazione: sanitizeString_(line.riferimentoAmministrazione)
     };
@@ -1254,8 +1577,12 @@ function normalizeInvoice_(source) {
     ritenute: sanitizeString_(sourceAccounts.ritenute),
     cassa: sanitizeString_(sourceAccounts.cassa),
     gestione: sanitizeString_(sourceAccounts.gestione),
-    bollo: sanitizeString_(sourceAccounts.bollo),
-    incassi: sanitizeString_(sourceAccounts.incassi)
+    bollo: sanitizeString_(sourceAccounts.bollo) || 'Debiti per imposta di bollo',
+    incassi: sanitizeString_(sourceAccounts.incassi),
+    costi: sanitizeString_(sourceAccounts.costi),
+    ivaCredito: sanitizeString_(sourceAccounts.ivaCredito),
+    fornitori: sanitizeString_(sourceAccounts.fornitori),
+    ivaAutofatture: sanitizeString_(sourceAccounts.ivaAutofatture)
   };
   if (['clienti', 'ricavi', 'iva', 'ritenute', 'cassa', 'gestione'].some(key => !conti[key])) throw new Error('Mappatura contabile fattura incompleta.');
 
@@ -1272,13 +1599,38 @@ function normalizeInvoice_(source) {
     scadenza: scadenza,
     incassata: payment.incassata === true
   };
+  const payments = (Array.isArray(invoice.payments) ? invoice.payments : []).map(item => {
+    const itemData = String(item && item.data || '');
+    const itemDate = new Date(itemData + 'T00:00:00.000Z');
+    const itemAmountCents = Math.round(Number(item && item.importo) * 100);
+    const itemAccount = sanitizeString_(item && item.conto);
+    const linkedTransactionId = String(item && item.linkedTransactionId || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(itemData)
+      || isNaN(itemDate.getTime())
+      || itemDate.toISOString().slice(0, 10) !== itemData
+      || !isFinite(itemAmountCents)
+      || itemAmountCents <= 0
+      || !itemAccount
+      || (linkedTransactionId && !/^[0-9a-f-]{36}$/i.test(linkedTransactionId))) {
+      throw new Error('Dati pagamento fattura non validi.');
+    }
+    return {
+      data: itemData,
+      importo: itemAmountCents / 100,
+      conto: itemAccount,
+      linkedTransactionId: linkedTransactionId || undefined
+    };
+  });
   const stampSource = invoice.marcaDaBollo || {};
+  const bolloRiaddebitatoAlCliente = invoice.bolloRiaddebitatoAlCliente === true
+    || stampSource.addebitata === true;
   const marcaDaBollo = {
-    addebitata: stampSource.addebitata === true,
-    importo: Number(stampSource.importo || 0),
+    addebitata: bolloRiaddebitatoAlCliente,
+    dovuta: stampSource.dovuta === undefined ? undefined : stampSource.dovuta === true,
+    importo: Number(stampSource.importo || 2),
     identificativo: sanitizeString_(stampSource.identificativo)
   };
-  if (marcaDaBollo.addebitata
+  if ((marcaDaBollo.addebitata || marcaDaBollo.dovuta)
     && (!isFinite(marcaDaBollo.importo) || marcaDaBollo.importo <= 0 || !conti.bollo)) {
     throw new Error('Marca da bollo o conto contabile non valido.');
   }
@@ -1286,7 +1638,22 @@ function normalizeInvoice_(source) {
 
   const normalized = {
     id: String(invoice.id), data: date, cliente, linee,
-    tipoDocumento: sanitizeString_(invoice.tipoDocumento) || 'TD01',
+    documentType: documentType,
+    tipoDocumento: documentType,
+    regimeFiscale,
+    revenueAccount: sanitizeString_(invoice.revenueAccount) || conti.ricavi,
+    costAccount: sanitizeString_(invoice.costAccount),
+    atecoCode: sanitizeString_(invoice.atecoCode),
+    contributionType: sanitizeString_(invoice.contributionType),
+    contributionCode: sanitizeString_(invoice.contributionCode),
+    ritenutaAttiva: regimeFiscale === 'RF19'
+      ? false
+      : invoice.ritenutaAttiva === undefined ? rates.aliquotaRitenuta > 0 : invoice.ritenutaAttiva === true,
+    bolloRiaddebitatoAlCliente,
+    payments: payments,
+    linkedIssueTransactionId: sanitizeString_(invoice.linkedIssueTransactionId) || String(invoice.id),
+    linkedInvoiceNumber: linkedInvoiceNumber,
+    linkedInvoiceDate: linkedInvoiceDate,
     dataRicezione: sanitizeString_(invoice.dataRicezione),
     numeroDocumento: sanitizeString_(invoice.numeroDocumento),
     causale: sanitizeString_(invoice.causale),
@@ -1327,10 +1694,21 @@ function calculateInvoiceTotals_(invoice) {
     };
   });
   const vat = ivaPerAliquota.reduce((sum, item) => sum + Math.round(item.iva * 100), 0);
-  const withholding = Math.round(base * invoice.aliquotaRitenuta / 100);
-  const stampDuty = invoice.marcaDaBollo && invoice.marcaDaBollo.addebitata
-    ? Math.round(Number(invoice.marcaDaBollo.importo) * 100)
+  const withholding = invoice.ritenutaAttiva === false || invoice.regimeFiscale === 'RF19'
+    ? 0
+    : Math.round(base * invoice.aliquotaRitenuta / 100);
+  const exempt = Array.from(taxableByRate.entries())
+    .filter(entry => entry[0] === 0)
+    .reduce((sum, entry) => sum + entry[1], 0);
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(invoice.documentType);
+  const stampDutyDue = invoice.marcaDaBollo && invoice.marcaDaBollo.dovuta !== undefined
+    ? invoice.marcaDaBollo.dovuta
+    : !reverseCharge && (invoice.regimeFiscale === 'RF19' ? base : exempt) > 7747;
+  const stampDuty = stampDutyDue
+    ? Math.round(Number(invoice.marcaDaBollo && invoice.marcaDaBollo.importo || 2) * 100)
     : 0;
+  const stampDutyRecharged = invoice.bolloRiaddebitatoAlCliente === true
+    || Boolean(invoice.marcaDaBollo && invoice.marcaDaBollo.addebitata);
   return {
     imponibile: base / 100,
     cassa: contribution / 100,
@@ -1339,22 +1717,83 @@ function calculateInvoiceTotals_(invoice) {
     ivaPerAliquota: ivaPerAliquota,
     ritenuta: withholding / 100,
     bollo: stampDuty / 100,
-    totale: (base + contribution + vat - withholding + stampDuty) / 100
+    bolloRiaddebitato: stampDutyRecharged && stampDuty > 0,
+    totale: (base + contribution + vat - withholding + (stampDutyRecharged ? stampDuty : 0)) / 100
   };
 }
 
 function invoiceJournalMovements_(invoice) {
   const totals = invoice.totali;
-  const description = ('Fattura ' + invoice.numero + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200);
   const accounts = invoice.conti;
-  const movements = [
-    { conto: invoice.pagamento && invoice.pagamento.incassata ? accounts.incassi : accounts.clienti, descrizione: description, gestione: '', dare: totals.totale, avere: 0 }
-  ];
+  const documentType = invoice.documentType || invoice.tipoDocumento || 'TD01';
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(documentType);
+  const description = ((reverseCharge ? 'Autofattura' : documentType === 'TD04' ? 'Nota di credito' : 'Fattura')
+    + ' ' + invoice.numero + ' - ' + invoice.cliente.ragioneSociale).slice(0, 200);
+  const movements = [];
+  const cents = amount => Math.round((Number(amount) + Number.EPSILON) * 100);
+  const amount = value => Number((value / 100).toFixed(2));
+
+  if (reverseCharge) {
+    const flat = invoice.regimeFiscale === 'RF19';
+    const costs = new Map();
+    invoice.linee.forEach(line => {
+      const account = line.costAccount || invoice.costAccount || accounts.costi || 'Costi per acquisti';
+      costs.set(account, (costs.get(account) || 0) + cents(line.quantita * line.prezzoUnitario));
+    });
+    if (flat && totals.iva > 0) {
+      const account = invoice.costAccount || accounts.costi || 'Costi per acquisti';
+      costs.set(account, (costs.get(account) || 0) + cents(totals.iva));
+    }
+    costs.forEach((value, account) => movements.push({
+      conto: account, descrizione: description, gestione: accounts.gestione,
+      dare: amount(value), avere: 0
+    }));
+    if (!flat && totals.iva > 0) movements.push({
+      conto: accounts.ivaCredito || 'IVA a credito', descrizione: description,
+      gestione: '', dare: totals.iva, avere: 0
+    });
+    if (totals.imponibile > 0) movements.push({
+      conto: accounts.fornitori || 'Debiti v/fornitori', descrizione: description,
+      gestione: '', dare: 0, avere: totals.imponibile
+    });
+    if (totals.iva > 0) movements.push({
+      conto: flat ? accounts.ivaAutofatture || 'Debito IVA autofatture' : accounts.iva,
+      descrizione: description, gestione: '', dare: 0, avere: totals.iva
+    });
+    return movements;
+  }
+
+  movements.push({
+    conto: invoice.pagamento && invoice.pagamento.incassata ? accounts.incassi || accounts.clienti : accounts.clienti,
+    descrizione: description, gestione: '', dare: totals.totale, avere: 0
+  });
   if (totals.ritenuta > 0) movements.push({ conto: accounts.ritenute, descrizione: description, gestione: '', dare: totals.ritenuta, avere: 0 });
-  movements.push({ conto: accounts.ricavi, descrizione: description, gestione: accounts.gestione, dare: 0, avere: totals.imponibile });
+  const revenue = new Map();
+  invoice.linee.forEach(line => {
+    const account = line.revenueAccount || invoice.revenueAccount || accounts.ricavi;
+    revenue.set(account, (revenue.get(account) || 0) + cents(line.quantita * line.prezzoUnitario));
+  });
+  revenue.forEach((value, account) => movements.push({
+    conto: account, descrizione: description, gestione: accounts.gestione,
+    dare: 0, avere: amount(value)
+  }));
   if (totals.cassa > 0) movements.push({ conto: accounts.cassa, descrizione: description, gestione: accounts.gestione, dare: 0, avere: totals.cassa });
   if (totals.iva > 0) movements.push({ conto: accounts.iva, descrizione: description, gestione: '', dare: 0, avere: totals.iva });
-  if (totals.bollo > 0) movements.push({ conto: accounts.bollo, descrizione: description, gestione: '', dare: 0, avere: totals.bollo });
+  if (totals.bollo > 0) {
+    if (!totals.bolloRiaddebitato) movements.push({
+      conto: accounts.costi || 'Imposte e tasse indirette', descrizione: description,
+      gestione: accounts.gestione, dare: totals.bollo, avere: 0
+    });
+    movements.push({
+      conto: accounts.bollo || 'Debiti per imposta di bollo', descrizione: description,
+      gestione: '', dare: 0, avere: totals.bollo
+    });
+  }
+  if (documentType === 'TD04') {
+    return movements.map(movement => ({
+      ...movement, dare: movement.avere, avere: movement.dare
+    }));
+  }
   return movements;
 }
 

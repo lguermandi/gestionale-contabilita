@@ -32,7 +32,8 @@ const ENTITY_MIGRATED_AUXILIARY_SHEETS_ = [
   }
 ];
 const ENTITY_MOVEMENT_HEADERS_ = [
-  'Data', 'ID', 'Conto', 'Descrizione', 'Gestione', 'Dare', 'Avere'
+  'Data', 'ID', 'Conto', 'Descrizione', 'Gestione', 'Dare', 'Avere',
+  'Documento_Tipo', 'Documento_ID'
 ];
 const ENTITY_LEGACY_INDEX_HEADERS_ = [
   'ID', 'Nome_Entita', 'Tipologia', 'Folder_ID', 'Spreadsheet_ID'
@@ -481,6 +482,7 @@ function migrateLegacyMovementRows_(spreadsheet) {
             .setFontWeight('bold');
           yearSheet.setFrozenRows(1);
         }
+        ensureMovementHeaders_(yearSheet);
         const existingIds = yearSheet.getLastRow() > 0
           ? yearSheet.getRange(1, 2, yearSheet.getLastRow(), 1).getValues().flat()
           : [];
@@ -522,6 +524,7 @@ function migrateLegacyMovementRows_(spreadsheet) {
       && spreadsheet.getSheets().length > 1) {
       spreadsheet.deleteSheet(sheet);
     }
+    if (/^\d{4}$/.test(sheet.getName())) ensureMovementHeaders_(sheet);
   });
 }
 
@@ -635,6 +638,7 @@ function initializeEntityMovementsSpreadsheet_(spreadsheet) {
       .setFontWeight('bold');
     yearSheet.setFrozenRows(1);
   }
+  ensureMovementHeaders_(yearSheet);
 }
 
 function normalizeEntityData_(data) {

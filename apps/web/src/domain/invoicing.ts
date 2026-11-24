@@ -1,3 +1,5 @@
+import { buildInvoiceAccountingPosting } from './accounting'
+
 export interface InvoiceLine {
   id: string
   descrizione: string
@@ -6,7 +8,17 @@ export interface InvoiceLine {
   aliquotaIva?: number
   naturaIva?: string
   riferimentoAmministrazione?: string
+  revenueAccount?: string
+  costAccount?: string
+  atecoCode?: string
 }
+
+export type InvoiceDocumentType =
+  | 'TD01' | 'TD02' | 'TD03' | 'TD04' | 'TD05' | 'TD06' | 'TD07' | 'TD08' | 'TD09'
+  | 'TD10' | 'TD16' | 'TD17' | 'TD18' | 'TD19' | 'TD20' | 'TD21' | 'TD22' | 'TD23'
+  | 'TD24' | 'TD25' | 'TD26' | 'TD27' | 'TD28' | 'TD29'
+
+export type InvoiceContributionType = 'gestione_separata' | 'cassa_previdenziale'
 
 export interface InvoiceAccounts {
   clienti: string
@@ -20,6 +32,7 @@ export interface InvoiceAccounts {
   costi?: string
   ivaCredito?: string
   fornitori?: string
+  ivaAutofatture?: string
 }
 
 export interface InvoiceCustomer {
@@ -40,6 +53,13 @@ export interface InvoiceCustomer {
 }
 
 export interface InvoicePayment {
+  data: string
+  importo: number
+  conto: string
+  linkedTransactionId?: string
+}
+
+export interface InvoicePaymentTerms {
   metodo: string
   scadenza: string
   incassata: boolean
@@ -47,6 +67,7 @@ export interface InvoicePayment {
 
 export interface InvoiceStampDuty {
   addebitata: boolean
+  dovuta?: boolean
   importo: number
   identificativo: string
 }
@@ -69,10 +90,23 @@ export interface IssuedCreditNote extends CreditNoteDraft {
 export interface InvoiceDraft {
   id: string
   data: string
-  tipoDocumento?: 'TD01' | 'TD02' | 'TD03' | 'TD04' | 'TD05' | 'TD06' | 'TD07' | 'TD08' | 'TD09' | 'TD10' | 'TD16' | 'TD17' | 'TD18' | 'TD19' | 'TD20' | 'TD21' | 'TD22' | 'TD23' | 'TD24' | 'TD25' | 'TD26' | 'TD27' | 'TD28' | 'TD29'
+  documentType: InvoiceDocumentType
+  tipoDocumento?: InvoiceDocumentType
   dataRicezione?: string
   numeroDocumento?: string
   causale?: string
+  revenueAccount?: string
+  costAccount?: string
+  atecoCode?: string
+  regimeFiscale?: string
+  contributionType?: InvoiceContributionType
+  contributionCode?: string
+  ritenutaAttiva?: boolean
+  bolloRiaddebitatoAlCliente: boolean
+  payments: InvoicePayment[]
+  linkedIssueTransactionId?: string
+  linkedInvoiceNumber?: string
+  linkedInvoiceDate?: string
   divisa?: string
   cliente: InvoiceCustomer
   linee: InvoiceLine[]
@@ -81,7 +115,7 @@ export interface InvoiceDraft {
   aliquotaRitenuta: number
   note: string
   conti: InvoiceAccounts
-  pagamento?: InvoicePayment
+  pagamento?: InvoicePaymentTerms
   marcaDaBollo?: InvoiceStampDuty
 }
 
@@ -93,6 +127,7 @@ export interface InvoiceTotals {
   ivaPerAliquota: { aliquota: number; baseIva: number; iva: number }[]
   ritenuta: number
   bollo: number
+  bolloRiaddebitato?: boolean
   totale: number
 }
 
@@ -102,6 +137,50 @@ export interface IssuedInvoice extends InvoiceDraft {
   totali: InvoiceTotals
   duplicate?: boolean
   archivio?: InvoiceArchive
+}
+
+export type InvoicePaymentStatus = 'Da incassare' | 'Parziale' | 'Saldata' | 'Scaduta' | 'Autofattura' | 'Nota di credito'
+
+export function getInvoicePaidAmount(invoice: Pick<IssuedInvoice, 'pagamento' | 'payments' | 'totali'>): number {
+  if (invoice.pagamento?.incassata && !invoice.payments.length) return invoice.totali.totale
+  const cents = invoice.payments.reduce((total, payment) => (
+    total + Math.max(0, Math.round((Number(payment.importo) + Number.EPSILON) * 100))
+  ), 0)
+  return cents / 100
+}
+
+export function getInvoiceRemainingAmount(invoice: Pick<IssuedInvoice, 'pagamento' | 'payments' | 'totali'>): number {
+  return Math.max(0, Math.round(invoice.totali.totale * 100) - Math.round(getInvoicePaidAmount(invoice) * 100)) / 100
+}
+
+export function getInvoicePaymentStatus(
+  invoice: Pick<IssuedInvoice, 'documentType' | 'pagamento' | 'payments' | 'totali'>,
+  today = new Date().toISOString().slice(0, 10),
+): InvoicePaymentStatus {
+  if (invoice.documentType === 'TD04') return 'Nota di credito'
+  if (['TD16', 'TD17', 'TD18', 'TD19'].includes(invoice.documentType)) return 'Autofattura'
+  if (getInvoiceRemainingAmount(invoice) === 0) return 'Saldata'
+  if (invoice.pagamento?.scadenza && invoice.pagamento.scadenza < today) return 'Scaduta'
+  return getInvoicePaidAmount(invoice) > 0 ? 'Parziale' : 'Da incassare'
+}
+
+export type StoredIssuedInvoice = Omit<
+  IssuedInvoice,
+  'documentType' | 'payments' | 'bolloRiaddebitatoAlCliente'
+> & Partial<Pick<IssuedInvoice, 'documentType' | 'payments' | 'bolloRiaddebitatoAlCliente'>>
+
+export function normalizeIssuedInvoice(invoice: StoredIssuedInvoice): IssuedInvoice {
+  return {
+    ...invoice,
+    documentType: invoice.documentType || invoice.tipoDocumento || 'TD01',
+    revenueAccount: invoice.revenueAccount || invoice.conti.ricavi,
+    ritenutaAttiva: invoice.ritenutaAttiva ?? invoice.aliquotaRitenuta > 0,
+    payments: Array.isArray(invoice.payments) ? invoice.payments : [],
+    linkedIssueTransactionId: invoice.linkedIssueTransactionId || invoice.id,
+    bolloRiaddebitatoAlCliente: invoice.bolloRiaddebitatoAlCliente
+      || invoice.marcaDaBollo?.addebitata
+      || false,
+  }
 }
 
 export interface InvoiceArchive {
@@ -116,10 +195,16 @@ export interface InvoiceArchive {
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const fromCents = (amount: number) => Number((amount / 100).toFixed(2))
 
-export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliquotaIva' | 'aliquotaCassa' | 'aliquotaRitenuta'> & Partial<Pick<InvoiceDraft, 'marcaDaBollo'>>): InvoiceTotals {
+export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliquotaIva' | 'aliquotaCassa' | 'aliquotaRitenuta'> & Partial<Pick<
+  InvoiceDraft,
+  'documentType' | 'regimeFiscale' | 'bolloRiaddebitatoAlCliente' | 'marcaDaBollo' | 'ritenutaAttiva'
+>>): InvoiceTotals {
   const taxableByRate = new Map<number, number>()
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(draft.documentType || '')
   for (const line of draft.linee) {
-    const rate = line.aliquotaIva ?? draft.aliquotaIva
+    const rate = draft.regimeFiscale === 'RF19' && !reverseCharge
+      ? 0
+      : line.aliquotaIva ?? draft.aliquotaIva
     const lineCents = toCents(line.quantita * line.prezzoUnitario)
     taxableByRate.set(rate, (taxableByRate.get(rate) || 0) + lineCents)
   }
@@ -141,10 +226,24 @@ export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliq
     }
   })
   const vatCents = ivaPerAliquota.reduce((total, item) => total + toCents(item.iva), 0)
-  const withholdingCents = Math.round(taxableCents * draft.aliquotaRitenuta / 100)
-  const stampDutyCents = draft.marcaDaBollo?.addebitata
-    ? toCents(draft.marcaDaBollo.importo)
+  const withholdingCents = draft.ritenutaAttiva === false || draft.regimeFiscale === 'RF19'
+    ? 0
+    : Math.round(taxableCents * draft.aliquotaRitenuta / 100)
+  const exemptCents = [...taxableByRate.entries()]
+    .filter(([rate]) => rate === 0)
+    .reduce((sum, [, amount]) => sum + amount, 0)
+  const stampDutyBaseCents = reverseCharge
+    ? 0
+    : draft.regimeFiscale === 'RF19' ? taxableCents : exemptCents
+  const stampDutyDue = draft.marcaDaBollo?.dovuta
+    ?? (Boolean(draft.marcaDaBollo?.addebitata)
+      || stampDutyBaseCents > 7_747)
+  const stampDutyCents = stampDutyDue
+    ? toCents(draft.marcaDaBollo?.importo || 2)
     : 0
+  const stampDutyRecharged = Boolean(
+    draft.bolloRiaddebitatoAlCliente || draft.marcaDaBollo?.addebitata,
+  )
 
   return {
     imponibile: fromCents(taxableCents),
@@ -154,7 +253,9 @@ export function calculateInvoiceTotals(draft: Pick<InvoiceDraft, 'linee' | 'aliq
     ivaPerAliquota,
     ritenuta: fromCents(withholdingCents),
     bollo: fromCents(stampDutyCents),
-    totale: fromCents(taxableCents + contributionCents + vatCents - withholdingCents + stampDutyCents),
+    bolloRiaddebitato: stampDutyRecharged && stampDutyCents > 0,
+    totale: fromCents(taxableCents + contributionCents + vatCents - withholdingCents
+      + (stampDutyRecharged ? stampDutyCents : 0)),
   }
 }
 
@@ -181,14 +282,29 @@ export function validateInvoice(draft: InvoiceDraft): string[] {
       errors.push('Inserisci una data di scadenza valida.')
     }
   }
+  if (draft.documentType === 'TD04') {
+    if (!draft.linkedInvoiceNumber?.trim()) errors.push('Indica il numero della fattura collegata alla nota di credito.')
+    if (!draft.linkedInvoiceDate?.trim()) errors.push('Indica la data della fattura collegata alla nota di credito.')
+    else {
+      const linkedDate = new Date(`${draft.linkedInvoiceDate}T00:00:00.000Z`)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.linkedInvoiceDate)
+        || Number.isNaN(linkedDate.getTime())
+        || linkedDate.toISOString().slice(0, 10) !== draft.linkedInvoiceDate) {
+        errors.push('La data della fattura collegata alla nota di credito non è valida.')
+      }
+    }
+  }
   if (draft.pagamento?.incassata && !draft.conti.incassi?.trim()) {
     errors.push('Configura il conto per gli incassi già ricevuti nelle Impostazioni.')
   }
-  if (draft.marcaDaBollo?.addebitata) {
-    if (!Number.isFinite(draft.marcaDaBollo.importo) || draft.marcaDaBollo.importo <= 0) {
+  const stampDuty = calculateInvoiceTotals(draft)
+  if (stampDuty.bolloRiaddebitato) {
+    if (!draft.conti.bollo?.trim()) errors.push('Configura il conto per la marca da bollo nelle Impostazioni.')
+  }
+  if (stampDuty.bollo > 0) {
+    if (!Number.isFinite(draft.marcaDaBollo?.importo ?? 2) || (draft.marcaDaBollo?.importo ?? 2) <= 0) {
       errors.push('L’importo della marca da bollo deve essere maggiore di zero.')
     }
-    if (!draft.conti.bollo?.trim()) errors.push('Configura il conto per la marca da bollo nelle Impostazioni.')
   }
   if (draft.linee.length < 1 || draft.linee.length > 100) errors.push('La fattura deve contenere da 1 a 100 voci.')
   draft.linee.forEach((line, index) => {
@@ -205,23 +321,34 @@ export function validateInvoice(draft: InvoiceDraft): string[] {
   ] as const) {
     if (!Number.isFinite(rate) || rate < 0 || rate > 100) errors.push(`L’aliquota ${label} deve essere compresa tra 0 e 100.`)
   }
+  if (draft.regimeFiscale === 'RF19' && draft.ritenutaAttiva) {
+    errors.push('La ritenuta d’acconto non è applicabile alle fatture in regime forfettario.')
+  }
   Object.entries(draft.conti).forEach(([key, account]) => {
     if (!account.trim()) errors.push(`Configura il conto contabile ${key}.`)
   })
+  if (!['TD16', 'TD17', 'TD18', 'TD19'].includes(draft.documentType) && !draft.revenueAccount?.trim()) {
+    errors.push('Seleziona il conto di ricavo.')
+  }
+  if (!['TD16', 'TD17', 'TD18', 'TD19'].includes(draft.documentType) && !draft.atecoCode?.trim()) {
+    errors.push('Seleziona il codice ATECO dell’attività.')
+  }
+  if (['TD16', 'TD17', 'TD18', 'TD19'].includes(draft.documentType) && !draft.costAccount?.trim()) {
+    errors.push('Seleziona il conto di costo per l’autofattura.')
+  }
   if (calculateInvoiceTotals(draft).totale <= 0) errors.push('Il totale della fattura deve essere maggiore di zero.')
+  if (draft.aliquotaCassa > 0 && !draft.contributionType) {
+    errors.push('Seleziona il tipo di rivalsa previdenziale.')
+  }
+  if (draft.aliquotaCassa > 0 && draft.contributionType === 'cassa_previdenziale' && !draft.contributionCode?.trim()) {
+    errors.push('Seleziona il codice FatturaPA della cassa previdenziale.')
+  }
+  if (draft.contributionCode && !/^TC(?:0[1-9]|1\d|2[0-2])$/.test(draft.contributionCode)) {
+    errors.push('Il codice della cassa previdenziale non è valido.')
+  }
   return [...new Set(errors)]
 }
 
 export function buildInvoicePosting(invoice: IssuedInvoice) {
-  const { totali, conti, numero, cliente } = invoice
-  const descrizione = `Fattura ${numero} - ${cliente.ragioneSociale}`.slice(0, 200)
-  const movements = [
-    { conto: invoice.pagamento?.incassata ? conti.incassi || conti.clienti : conti.clienti, descrizione, gestione: '', dare: totali.totale, avere: 0 },
-    ...(totali.ritenuta > 0 ? [{ conto: conti.ritenute, descrizione, gestione: '', dare: totali.ritenuta, avere: 0 }] : []),
-    { conto: conti.ricavi, descrizione, gestione: conti.gestione, dare: 0, avere: totali.imponibile },
-    ...(totali.cassa > 0 ? [{ conto: conti.cassa, descrizione, gestione: conti.gestione, dare: 0, avere: totali.cassa }] : []),
-    ...(totali.iva > 0 ? [{ conto: conti.iva, descrizione, gestione: '', dare: 0, avere: totali.iva }] : []),
-    ...(totali.bollo > 0 ? [{ conto: conti.bollo || conti.ricavi, descrizione, gestione: '', dare: 0, avere: totali.bollo }] : []),
-  ]
-  return movements
+  return buildInvoiceAccountingPosting(invoice)
 }

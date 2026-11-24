@@ -78,9 +78,27 @@ export interface TaxPreview {
 }
 
 export interface TaxCalculationOptions {
-  ricaviPerAteco?: Record<string, number>
+  invoices?: TaxInvoiceReceipt[]
   fattureBolloPerTrimestre?: number[]
   ivaPeriodi?: VatPeriodEstimate[]
+}
+
+export interface TaxInvoiceReceipt {
+  data: string
+  documentType?: string
+  atecoCode?: string
+  linee: Array<{
+    quantita: number
+    prezzoUnitario: number
+    atecoCode?: string
+  }>
+  totali?: {
+    imponibile: number
+    cassa: number
+    totale: number
+  }
+  pagamento?: { incassata?: boolean }
+  payments?: Array<{ data: string; importo: number }>
 }
 
 export const FISCAL_REGIME_OPTIONS: Array<{ code: string; label: string }> = [
@@ -134,6 +152,47 @@ function getActivities(profile: FiscalProfile): AtecoActivity[] {
   return []
 }
 
+export function calculateCollectedRevenueByAteco(
+  invoices: TaxInvoiceReceipt[],
+  year: number,
+  activities: AtecoActivity[],
+): Record<string, number> {
+  const centsByCode = new Map(activities.map((activity) => [activity.codice, 0]))
+  const allowedCodes = new Set(centsByCode.keys())
+  invoices.forEach((invoice) => {
+    if (['TD04', 'TD16', 'TD17', 'TD18', 'TD19'].includes(invoice.documentType || '')) return
+    const weights = new Map<string, number>()
+    invoice.linee.forEach((line) => {
+      const code = line.atecoCode || invoice.atecoCode || (activities.length === 1 ? activities[0].codice : '')
+      const lineCents = Math.max(0, cents(line.quantita * line.prezzoUnitario))
+      if (allowedCodes.has(code) && lineCents > 0) weights.set(code, (weights.get(code) || 0) + lineCents)
+    })
+    const totalWeight = [...weights.values()].reduce((sum, value) => sum + value, 0)
+    if (totalWeight <= 0) return
+
+    const invoiceTotalCents = Math.max(0, cents(invoice.totali?.totale ?? totalWeight / 100))
+    const recognizedCents = Math.max(0, cents((invoice.totali?.imponibile ?? totalWeight / 100)
+      + (invoice.totali?.cassa ?? 0)))
+    const recognizedRatio = invoiceTotalCents > 0
+      ? Math.min(1, recognizedCents / invoiceTotalCents)
+      : 1
+    ;(invoice.payments || []).forEach((payment) => {
+      if (Number(payment.data.slice(0, 4)) !== year || !Number.isFinite(payment.importo) || payment.importo <= 0) return
+      const collectedCents = Math.round(cents(payment.importo) * recognizedRatio)
+      const entries = [...weights.entries()]
+      let allocated = 0
+      entries.forEach(([code, weight], index) => {
+        const amount = index === entries.length - 1
+          ? collectedCents - allocated
+          : Math.round(collectedCents * weight / totalWeight)
+        allocated += amount
+        centsByCode.set(code, (centsByCode.get(code) || 0) + amount)
+      })
+    })
+  })
+  return Object.fromEntries([...centsByCode.entries()].map(([code, amount]) => [code, euros(amount)]))
+}
+
 function calculateSocialContributions(profile: FiscalProfile, grossIncome: number) {
   const scheme = profile.gestionePrevidenziale ?? 'nessuna'
   if (scheme === 'gestione_separata') {
@@ -173,12 +232,12 @@ export function buildTaxPreview(
   let redditoPerAteco: TaxPreview['redditoPerAteco'] = []
   let fatturato = roundEuro(accounting.ricavi)
   if (isFlat && activities.length) {
-    const hasManualReceipts = options.ricaviPerAteco !== undefined
+    const receiptsByAteco = options.invoices
+      ? calculateCollectedRevenueByAteco(options.invoices, _year, activities)
+      : {}
     redditoPerAteco = activities.map((activity) => {
       const coefficient = Math.max(0, Math.min(100, Number(activity.coefficienteRedditivita))) / 100
-      const receipts = hasManualReceipts
-        ? Math.max(0, Number(options.ricaviPerAteco?.[activity.codice] ?? 0))
-        : activities.length === 1 ? fatturato : 0
+      const receipts = Math.max(0, Number(receiptsByAteco[activity.codice] ?? 0))
       return {
         ...activity,
         ricavi: roundEuro(receipts),
@@ -186,13 +245,10 @@ export function buildTaxPreview(
         reddito: roundEuro(receipts * coefficient),
       }
     })
-    fatturato = hasManualReceipts
-      ? roundEuro(redditoPerAteco.reduce((total, item) => total + item.ricavi, 0))
-      : roundEuro(accounting.ricavi)
-    if (!hasManualReceipts) {
-      warnings.push(activities.length > 1
-        ? 'Inserisci gli incassi annui per ciascun ATECO: il sistema non ripartisce i ricavi con una media arbitraria.'
-        : 'I ricavi contabili sono usati solo come proxy degli incassi: inserisci gli incassi effettivamente ricevuti per applicare il principio di cassa.')
+    fatturato = roundEuro(redditoPerAteco.reduce((total, item) => total + item.ricavi, 0))
+    if (!options.invoices) warnings.push('Incassi non disponibili: per il calcolo per cassa carica le fatture con i relativi pagamenti registrati.')
+    else if (options.invoices.some((invoice) => invoice.pagamento?.incassata && !invoice.payments?.length)) {
+      warnings.push('Alcune fatture legacy risultano già incassate ma non hanno date/importi in payments: non sono conteggiate per cassa.')
     }
     redditoPerAteco.forEach((item) => {
       breakdown.push({
@@ -203,6 +259,7 @@ export function buildTaxPreview(
       })
     })
   } else if (isFlat) {
+    fatturato = 0
     warnings.push('Codice ATECO mancante: inserisci il codice e il relativo coefficiente prima di usare questa stima.')
     redditoPerAteco = []
   }

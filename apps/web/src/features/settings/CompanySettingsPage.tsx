@@ -34,6 +34,7 @@ const accountFields: Array<{ key: keyof InvoiceAccounts; label: string }> = [
   { key: 'costi', label: 'Costi per acquisti (predefinito)' },
   { key: 'ivaCredito', label: 'IVA a credito' },
   { key: 'fornitori', label: 'Debiti verso fornitori' },
+  { key: 'ivaAutofatture', label: 'IVA a debito per autofatture forfettarie' },
 ]
 
 export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad: () => void }) {

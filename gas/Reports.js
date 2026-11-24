@@ -7,6 +7,13 @@ function parseTransactions_(rows) {
   let runningDare = 0;
   let runningAvere = 0;
   let counter = 1;
+  const header = rows.length ? rows[0].map(value => String(value || '').trim()) : [];
+  const hasHeader = header[0] && header[0].toLowerCase() === 'data';
+  const documentTypeColumn = hasHeader ? header.indexOf('Documento_Tipo') : 7;
+  const documentIdColumn = hasHeader ? header.indexOf('Documento_ID') : 8;
+  let transactionId = '';
+  let relatedDocumentType = '';
+  let relatedDocumentId = '';
 
   rows.forEach(row => {
     const dare = Number(row[5]) || 0;
@@ -16,6 +23,11 @@ function parseTransactions_(rows) {
     }
 
     const date = formatTransactionDate_(row[0]);
+    if (entries.length === 0) {
+      transactionId = sanitizeString_(row[1]);
+      relatedDocumentType = documentTypeColumn >= 0 ? sanitizeString_(row[documentTypeColumn]) : '';
+      relatedDocumentId = documentIdColumn >= 0 ? sanitizeString_(row[documentIdColumn]) : '';
+    }
     entries.push({
       conto: sanitizeString_(row[2]),
       descrizione: sanitizeString_(row[3]),
@@ -28,14 +40,20 @@ function parseTransactions_(rows) {
     runningAvere += avere;
     if (Math.abs(runningDare - runningAvere) < 0.01 && runningDare > 0) {
       transactions.push({
-        id: `TX-${date}-${String(counter).padStart(3, '0')}`,
+        id: transactionId || `TX-${date}-${String(counter).padStart(3, '0')}`,
         data: date,
         totale: Number(runningDare.toFixed(2)),
-        movimenti: entries
+        movimenti: entries,
+        ...(relatedDocumentType && relatedDocumentId
+          ? { relatedDocumentType: relatedDocumentType, relatedDocumentId: relatedDocumentId }
+          : {})
       });
       entries = [];
       runningDare = 0;
       runningAvere = 0;
+      transactionId = '';
+      relatedDocumentType = '';
+      relatedDocumentId = '';
       counter += 1;
     }
   });

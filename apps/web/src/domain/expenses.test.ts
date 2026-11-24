@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { calculateExpenseTotals, validateExpense, type ExpenseDraft } from './expenses'
+import {
+  calculateExpenseTotals,
+  getExpensePaidAmount,
+  getExpensePaymentStatus,
+  validateExpense,
+  type ExpenseDraft,
+  type IssuedExpense,
+} from './expenses'
 
 const expense: ExpenseDraft = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -58,5 +65,39 @@ describe('gestione spese', () => {
       fornitore: { ...expense.fornitore, partitaIva: '', codiceFiscale: '' },
       allegato: { nome: 'ricevuta.exe', mimeType: 'application/octet-stream', base64: 'AA==' },
     })).toContain('Carica un allegato PDF, JPG o PNG.')
+  })
+
+  it('valida scadenza e riferimenti per l’autofattura collegata', () => {
+    expect(validateExpense({
+      ...expense,
+      dataScadenza: '2026-02-30',
+      linkedAutofatturaType: 'TD17',
+      linkedAutofatturaId: '',
+      aliquotaIvaAutofattura: 0,
+    })).toEqual(expect.arrayContaining([
+      'Inserisci una data di scadenza valida.',
+      'Genera un identificativo per l’autofattura collegata.',
+      'Seleziona un’aliquota IVA valida per l’autofattura collegata.',
+    ]))
+  })
+
+  it('determina residuo e stato delle fatture passive con pagamenti parziali', () => {
+    const issuedExpense: IssuedExpense = {
+      ...expense,
+      dataScadenza: '2026-12-10',
+      imponibile: 100,
+      iva: 22,
+      totale: 122,
+      stato: 'da pagare',
+      payments: [{ data: '2026-11-20', importo: 50, conto: 'Banca c/c' }],
+    }
+
+    expect(getExpensePaidAmount(issuedExpense)).toBe(50)
+    expect(getExpensePaymentStatus(issuedExpense, '2026-12-01')).toBe('Parziale')
+    expect(getExpensePaymentStatus(issuedExpense, '2026-12-11')).toBe('Scaduta')
+    expect(getExpensePaymentStatus({
+      ...issuedExpense,
+      payments: [{ data: '2026-11-20', importo: 122, conto: 'Banca c/c' }],
+    }, '2026-12-11')).toBe('Saldata')
   })
 })

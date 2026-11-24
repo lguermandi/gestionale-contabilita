@@ -59,42 +59,69 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
   if (errors.length) throw new Error(errors.join(' '))
 
   const progressivo = alphanumeric(invoice.numero).slice(0, 10) || invoice.id.slice(0, 10)
-  const cedenteVat = digits(company.partitaIva)
-  const cedenteFiscalCode = alphanumeric(company.codiceFiscale).toUpperCase()
-  const cedenteId = `<IdCodice>${esc(cedenteVat)}</IdCodice>`
-  const customerForeign = (invoice.cliente.nazione || 'Italia').toLocaleLowerCase('it') !== 'italia'
-  const customerVat = alphanumeric(invoice.cliente.partitaIva)
-  const customerFiscalCode = alphanumeric(invoice.cliente.codiceFiscale || '').toUpperCase()
-  const customerId = customerVat
-    ? `<IdPaese>${esc(customerForeign ? (invoice.cliente.nazione || 'XX').slice(0, 2).toUpperCase() : 'IT')}</IdPaese><IdCodice>${esc(customerVat)}</IdCodice>`
+  const documentType = invoice.documentType || invoice.tipoDocumento || 'TD01'
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(documentType)
+  const amountSign = documentType === 'TD04' ? -1 : 1
+  const customerCountry = (invoice.cliente.nazione || 'Italia').toLocaleLowerCase('it')
+  const customerForeign = customerCountry !== 'italia' && customerCountry !== 'it'
+  const companyParty = {
+    name: company.ragioneSociale,
+    vat: digits(company.partitaIva),
+    fiscalCode: alphanumeric(company.codiceFiscale).toUpperCase(),
+    address: company.indirizzo,
+    cap: company.cap || '',
+    comune: company.comune || '',
+    provincia: company.provincia || '',
+    nation: company.nazione || 'IT',
+  }
+  const customerParty = {
+    name: invoice.cliente.ragioneSociale,
+    vat: alphanumeric(invoice.cliente.partitaIva),
+    fiscalCode: alphanumeric(invoice.cliente.codiceFiscale || '').toUpperCase(),
+    address: invoice.cliente.indirizzo,
+    cap: invoice.cliente.cap || '',
+    comune: invoice.cliente.comune || '',
+    provincia: invoice.cliente.provincia || '',
+    nation: customerForeign ? (invoice.cliente.nazione || 'XX').slice(0, 2).toUpperCase() : 'IT',
+  }
+  const supplier = reverseCharge ? customerParty : companyParty
+  const recipient = reverseCharge ? companyParty : customerParty
+  const destinationCode = reverseCharge
+    ? company.codiceDestinatario || '0000000'
+    : invoice.cliente.codiceDestinatario || '0000000'
+  const supplierVatXml = supplier.vat
+    ? `<IdFiscaleIVA><IdPaese>${esc(supplier.nation)}</IdPaese><IdCodice>${esc(supplier.vat)}</IdCodice></IdFiscaleIVA>`
     : ''
-  const destinationCode = invoice.cliente.tipologia === 'Pubblica amministrazione'
-    ? (invoice.cliente.codiceDestinatario || '0000000')
-    : (invoice.cliente.codiceDestinatario || '0000000')
-  const tipoDocumento = invoice.tipoDocumento || 'TD01'
+  const recipientVatXml = recipient.vat
+    ? `<IdFiscaleIVA><IdPaese>${esc(recipient.nation)}</IdPaese><IdCodice>${esc(recipient.vat)}</IdCodice></IdFiscaleIVA>`
+    : ''
 
   const vatGroups = new Map<number, { base: number; vat: number }>()
-  for (const line of invoice.linee) {
-    const rate = company.regimeFiscale === 'RF19' ? 0 : (line.aliquotaIva ?? invoice.aliquotaIva)
-    const base = Math.round(line.quantita * line.prezzoUnitario * 100) / 100
-    const current = vatGroups.get(rate) || { base: 0, vat: 0 }
-    current.base += base
-    current.vat += Math.round(base * rate) / 100
-    vatGroups.set(rate, current)
+  if (invoice.totali.ivaPerAliquota?.length) {
+    invoice.totali.ivaPerAliquota.forEach((item) => vatGroups.set(item.aliquota, { base: item.baseIva, vat: item.iva }))
+  } else {
+    for (const line of invoice.linee) {
+      const rate = company.regimeFiscale === 'RF19' && !reverseCharge ? 0 : (line.aliquotaIva ?? invoice.aliquotaIva)
+      const base = Math.round(line.quantita * line.prezzoUnitario * 100) / 100
+      const current = vatGroups.get(rate) || { base: 0, vat: 0 }
+      current.base += base
+      current.vat += Math.round(base * rate) / 100
+      vatGroups.set(rate, current)
+    }
   }
 
   const dettaglio = invoice.linee.map((line, index) => {
     const originalRate = line.aliquotaIva ?? invoice.aliquotaIva
-    const rate = company.regimeFiscale === 'RF19' ? 0 : originalRate
-    const natura = company.regimeFiscale === 'RF19'
+    const rate = company.regimeFiscale === 'RF19' && !reverseCharge ? 0 : originalRate
+    const natura = company.regimeFiscale === 'RF19' && !reverseCharge
       ? 'N2.2'
       : (line.naturaIva || (rate === 0 ? 'N1' : ''))
     return `      <DettaglioLinee>
         <NumeroLinea>${index + 1}</NumeroLinea>
         <Descrizione>${esc(line.descrizione)}</Descrizione>
         <Quantita>${decimal(line.quantita)}</Quantita>
-        <PrezzoUnitario>${decimal(line.prezzoUnitario)}</PrezzoUnitario>
-        <PrezzoTotale>${decimal(line.quantita * line.prezzoUnitario)}</PrezzoTotale>
+        <PrezzoUnitario>${decimal(line.prezzoUnitario * amountSign)}</PrezzoUnitario>
+        <PrezzoTotale>${decimal(line.quantita * line.prezzoUnitario * amountSign)}</PrezzoTotale>
         <AliquotaIVA>${decimal(rate)}</AliquotaIVA>
         ${natura ? `<Natura>${esc(natura)}</Natura>` : ''}
         ${line.riferimentoAmministrazione ? `<RiferimentoAmministrazione>${esc(line.riferimentoAmministrazione)}</RiferimentoAmministrazione>` : ''}
@@ -102,14 +129,14 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
   }).join('\n')
 
   const riepilogo = [...vatGroups.entries()].sort(([left], [right]) => left - right).map(([rate, values]) => {
-    const natura = company.regimeFiscale === 'RF19'
+    const natura = company.regimeFiscale === 'RF19' && !reverseCharge
       ? 'N2.2'
       : (invoice.linee.find((line) => (line.aliquotaIva ?? invoice.aliquotaIva) === rate)?.naturaIva || (rate === 0 ? 'N1' : ''))
     return `      <DatiRiepilogo>
         <AliquotaIVA>${decimal(rate)}</AliquotaIVA>
         ${natura ? `<Natura>${esc(natura)}</Natura>` : ''}
-        <ImponibileImporto>${decimal(values.base)}</ImponibileImporto>
-        <Imposta>${decimal(values.vat)}</Imposta>
+        <ImponibileImporto>${decimal(values.base * amountSign)}</ImponibileImporto>
+        <Imposta>${decimal(values.vat * amountSign)}</Imposta>
         <EsigibilitaIVA>I</EsigibilitaIVA>
       </DatiRiepilogo>`
   }).join('\n')
@@ -124,54 +151,58 @@ export function buildFatturaPaXml(invoice: IssuedInvoice, company: CompanyProfil
 <p:FatturaElettronica versione="FPR12" xmlns:p="${XML_NS}" xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
   <FatturaElettronicaHeader>
     <DatiTrasmissione>
-      <IdTrasmittente><IdPaese>IT</IdPaese><IdCodice>${esc(cedenteVat)}</IdCodice></IdTrasmittente>
+      <IdTrasmittente><IdPaese>IT</IdPaese><IdCodice>${esc(companyParty.vat)}</IdCodice></IdTrasmittente>
       <ProgressivoInvio>${esc(progressivo)}</ProgressivoInvio>
       <FormatoTrasmissione>FPR12</FormatoTrasmissione>
       <CodiceDestinatario>${esc(destinationCode)}</CodiceDestinatario>
-      ${company.pec ? `<PECDestinatario>${esc(company.pec)}</PECDestinatario>` : ''}
+      ${!reverseCharge && company.pec ? `<PECDestinatario>${esc(company.pec)}</PECDestinatario>` : ''}
     </DatiTrasmissione>
     <CedentePrestatore>
       <DatiAnagrafici>
-        <IdFiscaleIVA><IdPaese>IT</IdPaese>${cedenteId}</IdFiscaleIVA>
-        ${cedenteFiscalCode ? `<CodiceFiscale>${esc(cedenteFiscalCode)}</CodiceFiscale>` : ''}
-        <Anagrafica><Denominazione>${esc(company.ragioneSociale)}</Denominazione></Anagrafica>
-        <RegimeFiscale>${esc(company.regimeFiscale || 'RF01')}</RegimeFiscale>
+        ${supplierVatXml}
+        ${supplier.fiscalCode ? `<CodiceFiscale>${esc(supplier.fiscalCode)}</CodiceFiscale>` : ''}
+        <Anagrafica><Denominazione>${esc(supplier.name)}</Denominazione></Anagrafica>
+        <RegimeFiscale>${esc(reverseCharge ? 'RF01' : company.regimeFiscale || 'RF01')}</RegimeFiscale>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>${esc(company.indirizzo)}</Indirizzo>
-        <CAP>${esc(company.cap || '')}</CAP>
-        <Comune>${esc(company.comune || '')}</Comune>
-        ${company.provincia ? `<Provincia>${esc(company.provincia)}</Provincia>` : ''}
-        <Nazione>${esc(company.nazione || 'IT')}</Nazione>
+        <Indirizzo>${esc(supplier.address)}</Indirizzo>
+        <CAP>${esc(supplier.cap)}</CAP>
+        <Comune>${esc(supplier.comune)}</Comune>
+        ${supplier.provincia ? `<Provincia>${esc(supplier.provincia)}</Provincia>` : ''}
+        <Nazione>${esc(supplier.nation)}</Nazione>
       </Sede>
-      ${company.pec ? `<Contatti><PECDomicilio>${esc(company.pec)}</PECDomicilio></Contatti>` : ''}
+      ${!reverseCharge && company.pec ? `<Contatti><PECDomicilio>${esc(company.pec)}</PECDomicilio></Contatti>` : ''}
     </CedentePrestatore>
     <CessionarioCommittente>
       <DatiAnagrafici>
-        <IdFiscaleIVA>${customerId}</IdFiscaleIVA>
-        ${customerFiscalCode ? `<CodiceFiscale>${esc(customerFiscalCode)}</CodiceFiscale>` : ''}
-        <Anagrafica><Denominazione>${esc(invoice.cliente.ragioneSociale)}</Denominazione></Anagrafica>
+        ${recipientVatXml}
+        ${recipient.fiscalCode ? `<CodiceFiscale>${esc(recipient.fiscalCode)}</CodiceFiscale>` : ''}
+        <Anagrafica><Denominazione>${esc(recipient.name)}</Denominazione></Anagrafica>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>${esc(invoice.cliente.indirizzo)}</Indirizzo>
-        <CAP>${esc(invoice.cliente.cap || '')}</CAP>
-        <Comune>${esc(invoice.cliente.comune || '')}</Comune>
-        ${invoice.cliente.provincia ? `<Provincia>${esc(invoice.cliente.provincia)}</Provincia>` : ''}
-        <Nazione>${esc(customerForeign ? (invoice.cliente.nazione || 'XX').slice(0, 2).toUpperCase() : 'IT')}</Nazione>
+        <Indirizzo>${esc(recipient.address)}</Indirizzo>
+        <CAP>${esc(recipient.cap)}</CAP>
+        <Comune>${esc(recipient.comune)}</Comune>
+        ${recipient.provincia ? `<Provincia>${esc(recipient.provincia)}</Provincia>` : ''}
+        <Nazione>${esc(recipient.nation)}</Nazione>
       </Sede>
     </CessionarioCommittente>
+    ${reverseCharge ? '<SoggettoEmittente>CC</SoggettoEmittente>' : ''}
   </FatturaElettronicaHeader>
   <FatturaElettronicaBody>
     <DatiGenerali>
       <DatiGeneraliDocumento>
-        <TipoDocumento>${esc(tipoDocumento)}</TipoDocumento>
+        <TipoDocumento>${esc(documentType)}</TipoDocumento>
         <Divisa>${esc(invoice.divisa || 'EUR')}</Divisa>
         <Data>${esc(invoice.data)}</Data>
         <Numero>${esc(invoice.numeroDocumento || invoice.numero)}</Numero>
+        ${invoice.totali.ritenuta > 0 ? `<DatiRitenuta><TipoRitenuta>RT02</TipoRitenuta><ImportoRitenuta>${decimal(invoice.totali.ritenuta * amountSign)}</ImportoRitenuta><AliquotaRitenuta>${decimal(invoice.aliquotaRitenuta)}</AliquotaRitenuta><CausalePagamento>A</CausalePagamento></DatiRitenuta>` : ''}
+        ${invoice.totali.bollo > 0 ? `<DatiBollo><BolloVirtuale>SI</BolloVirtuale><ImportoBollo>${decimal(invoice.totali.bollo * amountSign)}</ImportoBollo></DatiBollo>` : ''}
+        ${invoice.totali.cassa > 0 ? `<DatiCassaPrevidenziale><TipoCassa>${esc(invoice.contributionType === 'gestione_separata' ? 'TC22' : invoice.contributionCode || 'TC22')}</TipoCassa><AlCassa>${decimal(invoice.aliquotaCassa)}</AlCassa><ImportoContributoCassa>${decimal(invoice.totali.cassa * amountSign)}</ImportoContributoCassa><ImponibileCassa>${decimal(invoice.totali.imponibile * amountSign)}</ImponibileCassa><AliquotaIVA>${decimal(invoice.aliquotaIva)}</AliquotaIVA><Ritenuta>NO</Ritenuta></DatiCassaPrevidenziale>` : ''}
+        <ImportoTotaleDocumento>${decimal((invoice.totali.totale + (invoice.totali.ritenuta || 0)) * amountSign)}</ImportoTotaleDocumento>
         ${invoice.causale ? `<Causale>${esc(invoice.causale)}</Causale>` : ''}
-        ${invoice.marcaDaBollo?.addebitata ? `<DatiBollo><BolloVirtuale>SI</BolloVirtuale><ImportoBollo>${decimal(invoice.marcaDaBollo.importo)}</ImportoBollo></DatiBollo>` : ''}
-        ${invoice.aliquotaRitenuta > 0 ? `<DatiRitenuta><TipoRitenuta>RT02</TipoRitenuta><ImportoRitenuta>${decimal(invoice.totali.ritenuta)}</ImportoRitenuta><AliquotaRitenuta>${decimal(invoice.aliquotaRitenuta)}</AliquotaRitenuta><CausalePagamento>A</CausalePagamento></DatiRitenuta>` : ''}
       </DatiGeneraliDocumento>
+      ${invoice.linkedInvoiceNumber ? `<DatiFattureCollegate><IdDocumento>${esc(invoice.linkedInvoiceNumber)}</IdDocumento>${invoice.linkedInvoiceDate ? `<Data>${esc(invoice.linkedInvoiceDate)}</Data>` : ''}</DatiFattureCollegate>` : ''}
     </DatiGenerali>
     <DatiBeniServizi>
 ${dettaglio}
@@ -182,7 +213,7 @@ ${riepilogo}
       <DettaglioPagamento>
         <ModalitaPagamento>${paymentCode}</ModalitaPagamento>
         ${invoice.pagamento?.scadenza ? `<DataScadenzaPagamento>${esc(invoice.pagamento.scadenza)}</DataScadenzaPagamento>` : ''}
-        <ImportoPagamento>${decimal(invoice.totali.totale)}</ImportoPagamento>
+        <ImportoPagamento>${decimal(invoice.totali.totale * amountSign)}</ImportoPagamento>
       </DettaglioPagamento>
     </DatiPagamento>` : ''}
   </FatturaElettronicaBody>

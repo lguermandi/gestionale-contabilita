@@ -84,6 +84,7 @@ export const defaultCompanyProfile: CompanyProfile = {
         costi: 'Costi per acquisti',
         ivaCredito: 'IVA a credito',
         fornitori: 'Debiti v/fornitori',
+        ivaAutofatture: 'Debito IVA autofatture',
     },
 }
 

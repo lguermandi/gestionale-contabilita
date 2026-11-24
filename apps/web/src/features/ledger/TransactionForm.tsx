@@ -33,6 +33,14 @@ const newMovement = (): DraftMovement => ({
   avere: '',
 })
 
+const quickCauses = [
+  { id: 'invoice-receipt', label: 'Incasso fattura' },
+  { id: 'supplier-payment', label: 'Pagamento fornitore' },
+  { id: 'bank-transfer', label: 'Giroconto bancario' },
+  { id: 'bank-fees', label: 'Commissioni bancarie' },
+  { id: 'tax-payment', label: 'Versamento F24' },
+] as const
+
 function localDate(year: number) {
   const date = new Date()
   return year === date.getFullYear()
@@ -111,6 +119,44 @@ export function TransactionForm({
     ))
   }
 
+  function applyQuickCause(cause: typeof quickCauses[number]['id']) {
+    const findAccount = (pattern: RegExp, fallback: string) => (
+      accounts.find((account) => pattern.test(account.toLocaleLowerCase('it'))) || fallback
+    )
+    const bankAccounts = accounts.filter((account) => /banca|cassa|conto corrente|liquidit|postepay|paypal/i.test(account))
+    const bankDebit = bankAccounts[0] || findAccount(/banca|cassa|liquidit/i, 'Banca c/c')
+    const bankCredit = bankAccounts[1] || bankDebit
+    const rows = [newMovement(), newMovement()]
+    let quickDescription: string
+
+    if (cause === 'invoice-receipt') {
+      quickDescription = 'Incasso fattura'
+      rows[0] = { ...rows[0], conto: bankDebit }
+      rows[1] = { ...rows[1], conto: findAccount(/crediti.*clienti|clienti/i, 'Crediti v/clienti') }
+    } else if (cause === 'supplier-payment') {
+      quickDescription = 'Pagamento fornitore'
+      rows[0] = { ...rows[0], conto: findAccount(/debiti.*fornitori|fornitori/i, 'Debiti v/fornitori') }
+      rows[1] = { ...rows[1], conto: bankDebit }
+    } else if (cause === 'bank-transfer') {
+      quickDescription = 'Giroconto bancario'
+      rows[0] = { ...rows[0], conto: bankCredit }
+      rows[1] = { ...rows[1], conto: bankDebit }
+    } else if (cause === 'bank-fees') {
+      quickDescription = 'Commissioni bancarie'
+      rows[0] = { ...rows[0], conto: findAccount(/commissioni.*banc|spese banc|oneri banc/i, 'Commissioni bancarie'), gestione: managements[0] || '' }
+      rows[1] = { ...rows[1], conto: bankDebit }
+    } else {
+      quickDescription = 'Versamento F24'
+      rows[0] = { ...rows[0], conto: findAccount(/debiti.*tribut|erario c|tributi/i, 'Debiti tributari') }
+      rows[1] = { ...rows[1], conto: bankDebit }
+    }
+
+    setDescription(quickDescription)
+    setMovements(rows)
+    setErrors([])
+    setMessage('')
+  }
+
   return (
     <section className="mx-auto w-full max-w-6xl px-5 py-8 md:px-8">
       <div className="mb-6 border-b border-stone-200 pb-5">
@@ -122,6 +168,14 @@ export function TransactionForm({
       {!token && <p className="mb-5 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Puoi registrare offline: i movimenti resteranno in coda fino all’accesso a GAS e al ripristino della rete.</p>}
 
       <form onSubmit={handleSave} className="space-y-5">
+        <section className="border border-stone-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-stone-800">Causali rapide</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {quickCauses.map((cause) => <button key={cause.id} type="button" className="min-h-9 border border-emerald-800 px-3 text-xs font-medium text-emerald-900 hover:bg-emerald-50" onClick={() => applyQuickCause(cause.id)}>{cause.label}</button>)}
+          </div>
+          <p className="mt-2 text-xs text-stone-500">Le causali impostano descrizione e conti proposti; verifica i conti e inserisci gli importi prima di registrare.</p>
+        </section>
+
         <div className="grid gap-4 border border-stone-200 bg-white p-5 sm:grid-cols-[200px_1fr]">
           <label className="block text-sm text-stone-700">
             Data

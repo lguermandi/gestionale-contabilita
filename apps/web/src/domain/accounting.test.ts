@@ -34,6 +34,27 @@ describe('motore contabile', () => {
     })).toContain('Il totale Dare deve essere uguale al totale Avere e maggiore di zero.')
   })
 
+  it('mantiene i riferimenti al documento nelle scritture di incasso collegate', () => {
+    const payment: LedgerTransaction = {
+      id: 'payment-1',
+      data: '2026-03-10',
+      totale: 250,
+      relatedDocumentType: 'invoice',
+      relatedDocumentId: 'invoice-1',
+      movimenti: [
+        { conto: 'Banca c/c', descrizione: 'Incasso fattura 2026/001', gestione: '', dare: 250, avere: 0 },
+        { conto: 'Crediti v/clienti', descrizione: 'Incasso fattura 2026/001', gestione: '', dare: 0, avere: 250 },
+      ],
+    }
+
+    expect(validateTransaction(payment)).toEqual([])
+    expect(payment).toMatchObject({ relatedDocumentType: 'invoice', relatedDocumentId: 'invoice-1' })
+    expect(buildAccountingReports([payment]).saldi).toEqual(expect.arrayContaining([
+      expect.objectContaining({ conto: 'Banca c/c', saldo: 250 }),
+      expect.objectContaining({ conto: 'Crediti v/clienti', saldo: -250 }),
+    ]))
+  })
+
   it('rifiuta date impossibili', () => {
     expect(validateTransaction({
       data: '2026-02-31',

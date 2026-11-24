@@ -116,6 +116,12 @@ export function DashboardPage() {
                   <span className="shrink-0 tabular-nums text-stone-700">{euro.format(transaction.totale)}</span>
                 </div>
                 <p className="mt-1 text-xs text-stone-500">{new Date(`${transaction.data}T00:00:00`).toLocaleDateString('it-IT')} · {transaction.movimenti.length} righe</p>
+                {transaction.relatedDocumentType === 'invoice' && transaction.relatedDocumentId && (
+                  <Link className="mt-1 inline-block text-xs font-medium text-indigo-700 underline" to={`/fatturazione?documentId=${encodeURIComponent(transaction.relatedDocumentId)}`}>Apri fattura collegata</Link>
+                )}
+                {transaction.relatedDocumentType === 'expense' && transaction.relatedDocumentId && (
+                  <Link className="mt-1 inline-block text-xs font-medium text-indigo-700 underline" to={`/spese?documentId=${encodeURIComponent(transaction.relatedDocumentId)}`}>Apri spesa collegata</Link>
+                )}
               </article>
             )) : <p className="py-5 text-sm text-stone-500">Nessuna registrazione nell’esercizio.</p>}
           </div>

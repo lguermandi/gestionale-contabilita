@@ -1,4 +1,5 @@
 import type { TaxBreakdownStep, TaxPreview } from '../../domain/tax'
+import type { IssuedInvoice } from '../../domain/invoicing'
 
 export interface F24Field {
   section: 'Erario' | 'INPS'
@@ -30,6 +31,7 @@ export interface ManualTaxDeadline extends Omit<TaxDeadline, 'kind' | 'breakdown
 export interface TaxCalendarOptions {
   preview?: TaxPreview
   manualDeadlines?: ManualTaxDeadline[]
+  reverseChargeInvoices?: Pick<IssuedInvoice, 'id' | 'data' | 'numero' | 'documentType' | 'regimeFiscale' | 'totali'>[]
   includeBusinessDeadlines?: boolean
 }
 
@@ -59,6 +61,56 @@ export function buildTaxCalendar(
   const preview = options.preview
   const flat = regime === 'RF19'
   const includeBusinessDeadlines = options.includeBusinessDeadlines !== false
+
+  if (includeBusinessDeadlines && flat) {
+    const reverseChargePayments = new Map<string, { amount: number; taxYear: number; taxMonth: number; invoices: string[] }>()
+    options.reverseChargeInvoices?.forEach((invoice) => {
+      if (!['TD16', 'TD17', 'TD18', 'TD19'].includes(invoice.documentType)) return
+      if ((invoice.regimeFiscale || regime) !== 'RF19' || invoice.totali.iva <= 0) return
+      const dateParts = /^(\d{4})-(\d{2})-\d{2}$/.exec(invoice.data)
+      if (!dateParts) return
+      const issueYear = Number(dateParts[1])
+      const issueMonth = Number(dateParts[2])
+      if (issueMonth < 1 || issueMonth > 12) return
+      const dueDate = new Date(Date.UTC(issueYear, issueMonth, 16)).toISOString().slice(0, 10)
+      if (Number(dueDate.slice(0, 4)) !== year) return
+      const key = `${dueDate}:${issueYear}:${issueMonth}`
+      const current = reverseChargePayments.get(key) || {
+        amount: 0,
+        taxYear: issueYear,
+        taxMonth: issueMonth,
+        invoices: [],
+      }
+      current.amount = Math.round((current.amount + invoice.totali.iva + Number.EPSILON) * 100) / 100
+      current.invoices.push(invoice.numero || invoice.id)
+      reverseChargePayments.set(key, current)
+    })
+    reverseChargePayments.forEach((payment, key) => {
+      const date = key.slice(0, 10)
+      const month = String(payment.taxMonth).padStart(2, '0')
+      calendar.push(makeDeadline(
+        year,
+        `autofatture-iva-${payment.taxYear}-${month}`,
+        date,
+        `IVA autofatture - periodo ${month}/${payment.taxYear}`,
+        `Versamento dell’IVA integrata con autofatture TD16–TD19 emesse nel mese ${month}; documenti: ${payment.invoices.join(', ')}.`,
+        'iva',
+        payment.amount,
+        [{
+          section: 'Erario',
+          code: String(6000 + payment.taxMonth).padStart(4, '0'),
+          year: payment.taxYear,
+          amount: payment.amount,
+        }],
+        [{
+          label: `IVA autofatture ${month}/${payment.taxYear}`,
+          formula: `${payment.invoices.length} documenti con IVA integrata`,
+          importo: payment.amount,
+          spiegazioneSemplice: 'Per il regime forfettario l’IVA integrata sulle autofatture non è detraibile e va versata.',
+        }],
+      ))
+    })
+  }
 
   if (includeBusinessDeadlines && !flat && regime !== 'RF20') {
     if (periodicita === 'trimestrale') {

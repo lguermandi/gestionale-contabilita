@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getLocalTransactionHistory, getLocalTransactions, getPendingCount, offlineLedger, queueTransaction, syncPendingTransactions } from './offlineLedger'
 import type { LedgerTransaction } from '../domain/accounting'
+import type { InvoicePayment } from '../domain/invoicing'
 
 const record: LedgerTransaction = {
     id: '00000000-0000-4000-8000-000000000001',
@@ -71,5 +72,37 @@ describe('coda offline della partita doppia', () => {
         await syncPendingTransactions('session', { isOnline: async () => true, send })
 
         expect(send).toHaveBeenCalledWith('session', record, 'private', 'spreadsheet-one')
+    })
+
+    it('sincronizza atomicamente il pagamento collegato al documento tramite GAS', async () => {
+        const documentId = '00000000-0000-4000-8000-000000000002'
+        const payment: InvoicePayment = {
+            data: '2026-03-10',
+            importo: 25,
+            conto: 'Banca c/c',
+            linkedTransactionId: record.id,
+        }
+        const transaction: LedgerTransaction = {
+            ...record,
+            relatedDocumentType: 'invoice',
+            relatedDocumentId: documentId,
+        }
+        await queueTransaction(transaction, 'business', 'spreadsheet-one', {
+            documentType: 'invoice',
+            documentId,
+            payment,
+        })
+        const sendDocumentPayment = vi.fn(async () => ({ payment, duplicate: false, remaining: 75 }))
+        const send = vi.fn(async () => ({ id: record.id, duplicate: false }))
+
+        const summary = await syncPendingTransactions('session', {
+            isOnline: async () => true,
+            send,
+            sendDocumentPayment,
+        })
+
+        expect(summary).toEqual({ synced: 1, pending: 0, online: true })
+        expect(sendDocumentPayment).toHaveBeenCalledWith('session', 'invoice', documentId, payment, 'spreadsheet-one')
+        expect(send).not.toHaveBeenCalled()
     })
 })

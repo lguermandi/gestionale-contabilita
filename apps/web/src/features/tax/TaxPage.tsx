@@ -184,6 +184,8 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
   const [showPast, setShowPast] = useState(false)
   const [invoices, setInvoices] = useState<IssuedInvoice[]>([])
   const [invoiceScope, setInvoiceScope] = useState('')
+  const [previousYearInvoices, setPreviousYearInvoices] = useState<IssuedInvoice[]>([])
+  const [previousInvoiceScope, setPreviousInvoiceScope] = useState('')
   const [invoiceError, setInvoiceError] = useState('')
   const [invoiceErrorScope, setInvoiceErrorScope] = useState('')
   const [notificationSettings, setNotificationSettings] = useState<TaxNotificationSettings>(defaultNotificationSettings)
@@ -222,7 +224,17 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
     () => invoiceScope === `${year}:${spreadsheetId}:${token}` ? invoices : [],
     [invoiceScope, invoices, spreadsheetId, token, year],
   )
-  const stampDutyCounts = useMemo(() => countStampDutyInvoices(currentInvoices), [currentInvoices])
+  const calendarInvoices = useMemo(() => [
+    ...new Map([
+      ...(previousInvoiceScope === `${year - 1}:${spreadsheetId}:${token}` ? previousYearInvoices : []),
+      ...currentInvoices,
+    ].map((invoice) => [invoice.id, invoice])).values(),
+  ], [currentInvoices, previousInvoiceScope, previousYearInvoices, spreadsheetId, token, year])
+  const issuedInvoicesThisYear = useMemo(
+    () => currentInvoices.filter((invoice) => invoice.data.slice(0, 4) === String(year)),
+    [currentInvoices, year],
+  )
+  const stampDutyCounts = useMemo(() => countStampDutyInvoices(issuedInvoicesThisYear), [issuedInvoicesThisYear])
   const taxPreview = useMemo(() => buildTaxPreview(
     allTransactions,
     reports.contoEconomico,
@@ -230,17 +242,18 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
     profile,
     year,
     {
-      ricaviPerAteco: Object.keys(localData.ricaviPerAteco).length ? localData.ricaviPerAteco : undefined,
+      invoices: invoiceScope === `${year}:${spreadsheetId}:${token}` ? currentInvoices : undefined,
       fattureBolloPerTrimestre: stampDutyCounts,
       ivaPeriodi: vatPeriods,
     },
-  ), [allTransactions, localData.ricaviPerAteco, profile, reports.contoEconomico, stampDutyCounts, vatNet, vatPeriods, year])
+  ), [allTransactions, currentInvoices, invoiceScope, profile, reports.contoEconomico, stampDutyCounts, spreadsheetId, token, vatNet, vatPeriods, year])
   const calendar = useMemo(() => buildTaxCalendar(year, profile.regimeFiscale, profile.periodoIva, {
     preview: taxPreview,
     manualDeadlines: localData.manualDeadlines,
+    reverseChargeInvoices: calendarInvoices,
     includeBusinessDeadlines: !isPrivate,
   }).map((deadline) => ({ ...deadline, paid: localData.paidIds.includes(deadline.id) })), [
-    isPrivate, localData.manualDeadlines, localData.paidIds, profile.periodoIva, profile.regimeFiscale, taxPreview, year,
+    calendarInvoices, isPrivate, localData.manualDeadlines, localData.paidIds, profile.periodoIva, profile.regimeFiscale, taxPreview, year,
   ])
   const today = todayString()
   const upcoming = calendar.filter((deadline) => !deadline.paid && deadline.date >= today)
@@ -258,15 +271,28 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
     if (!token || !spreadsheetId) return
     let active = true
     const scope = `${year}:${spreadsheetId}:${token}`
-    void fetchInvoices(year, token, spreadsheetId).then((result) => {
+    void Promise.allSettled([
+      fetchInvoices(year, token, spreadsheetId),
+      fetchInvoices(year - 1, token, spreadsheetId),
+    ]).then(([currentResult, previousResult]) => {
       if (!active) return
-      setInvoices(result)
-      setInvoiceScope(scope)
-      setInvoiceErrorScope('')
-    }).catch((error: unknown) => {
-      if (!active) return
-      const message = error instanceof Error ? error.message : 'Impossibile leggere le fatture per stimare i bolli.'
-      setInvoiceError(message)
+      if (currentResult.status === 'fulfilled') {
+        setInvoices(currentResult.value)
+        setInvoiceScope(scope)
+      }
+      if (previousResult.status === 'fulfilled') {
+        setPreviousYearInvoices(previousResult.value)
+        setPreviousInvoiceScope(`${year - 1}:${spreadsheetId}:${token}`)
+      }
+      const failures = [currentResult, previousResult]
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      if (!failures.length) {
+        setInvoiceError('')
+        setInvoiceErrorScope('')
+        return
+      }
+      const message = failures.map(({ reason }) => reason instanceof Error ? reason.message : String(reason)).join(' ')
+      setInvoiceError(`Impossibile leggere tutte le fatture per i bolli e le scadenze IVA delle autofatture. ${message}`)
       setInvoiceErrorScope(scope)
       if (message.includes('SESSION_EXPIRED')) clearToken()
     })
@@ -521,18 +547,13 @@ function TaxPageContent({ year, localStorageKey }: { year: number; localStorageK
       {profile.regimeFiscale === 'RF19' && !isPrivate && activities.length > 0 && (
         <section className="mb-6 border border-stone-200 bg-white p-5">
           <h2 className="font-semibold text-stone-950">Incassi annui per codice ATECO</h2>
-          <p className="mt-1 text-sm leading-6 text-stone-600">Il forfettario segue il principio di cassa. Inserisci gli incassi effettivamente ricevuti per ogni attività; con più codici non vengono ripartiti automaticamente. Se c’è un solo codice, il valore iniziale è un proxy dei ricavi contabili da verificare. I valori sono salvati su questo dispositivo e per questo esercizio.</p>
+          <p className="mt-1 text-sm leading-6 text-stone-600">Importi calcolati dai pagamenti effettivamente registrati nell’anno, ripartiti per ATECO in base alle righe delle fatture. Le fatture non incassate e le fatture legacy senza date di pagamento non sono conteggiate.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {activities.map((activity) => (
-              <label key={activity.codice} className="block text-sm text-stone-700">
-                ATECO {activity.codice} · coefficiente {activity.coefficienteRedditivita}%
-                <input className={inputClass} type="number" min="0" step="0.01"
-                  value={localData.ricaviPerAteco[activity.codice] ?? (activities.length === 1 ? reports.contoEconomico.ricavi : 0)}
-                  onChange={(event) => updateLocalData((current) => ({
-                    ...current,
-                    ricaviPerAteco: { ...current.ricaviPerAteco, [activity.codice]: Number(event.target.value) },
-                  }))} />
-              </label>
+              <article key={activity.codice} className="border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
+                <p>ATECO {activity.codice} · coefficiente {activity.coefficienteRedditivita}%</p>
+                <p className="mt-1 font-semibold tabular-nums">{euro.format(taxPreview.redditoPerAteco.find((item) => item.codice === activity.codice)?.ricavi || 0)}</p>
+              </article>
             ))}
           </div>
         </section>

@@ -1,5 +1,14 @@
 import type { LedgerTransaction } from '../domain/accounting'
-import type { CreditNoteDraft, InvoiceCustomer, InvoiceDraft, IssuedCreditNote, IssuedInvoice } from '../domain/invoicing'
+import {
+  normalizeIssuedInvoice,
+  type CreditNoteDraft,
+  type InvoiceCustomer,
+  type InvoiceDraft,
+  type InvoicePayment,
+  type IssuedCreditNote,
+  type IssuedInvoice,
+  type StoredIssuedInvoice,
+} from '../domain/invoicing'
 import type { ExpenseDraft, IssuedExpense } from '../domain/expenses'
 import type { CompanyProfile } from '../stores/profileStore'
 
@@ -19,6 +28,14 @@ export interface AccountingEntity {
   folderId: string
   structureSpreadsheetId: string
   spreadsheetId: string
+}
+
+export interface ChartOfAccount {
+  codice: string
+  descrizione: string
+  tipo: string
+  gestione: string
+  attivo: boolean
 }
 
 export interface NewAccountingEntity {
@@ -98,6 +115,14 @@ export async function fetchTransactionHistory(throughYear: number, token: string
     anno: throughYear,
     entity,
     ...(spreadsheetId ? { spreadsheetId } : {}),
+  })
+}
+
+export function fetchChartOfAccounts(token: string, spreadsheetId: string) {
+  return requestGas<ChartOfAccount[]>({
+    action: 'getChartOfAccounts',
+    token,
+    spreadsheetId,
   })
 }
 
@@ -216,12 +241,12 @@ export function saveTransaction(token: string, transaction: LedgerTransaction, e
 }
 
 export function fetchInvoices(year: number, token: string, spreadsheetId?: string) {
-  return requestGas<IssuedInvoice[]>({
+  return requestGas<StoredIssuedInvoice[]>({
     action: 'getInvoices',
     token,
     anno: year,
     ...(spreadsheetId ? { spreadsheetId } : {}),
-  })
+  }).then((invoices) => invoices.map(normalizeIssuedInvoice))
 }
 
 export function fetchCustomers(token: string, spreadsheetId?: string) {
@@ -294,13 +319,30 @@ export function issueExpense(token: string, expense: ExpenseDraft, spreadsheetId
   })
 }
 
+export function registerDocumentPayment(
+  token: string,
+  documentType: 'invoice' | 'expense',
+  documentId: string,
+  payment: InvoicePayment,
+  spreadsheetId: string,
+) {
+  return requestGas<{ payment: InvoicePayment; duplicate: boolean; remaining: number }>({
+    action: 'registerDocumentPayment',
+    token,
+    documentType,
+    documentId,
+    payment,
+    spreadsheetId,
+  })
+}
+
 export function issueInvoice(token: string, invoice: InvoiceDraft, spreadsheetId?: string) {
-  return requestGas<IssuedInvoice>({
+  return requestGas<StoredIssuedInvoice>({
     action: 'issueInvoice',
     token,
     invoice,
     ...(spreadsheetId ? { spreadsheetId } : {}),
-  })
+  }).then(normalizeIssuedInvoice)
 }
 
 export function archiveInvoice(
@@ -310,12 +352,12 @@ export function archiveInvoice(
   xmlText: string,
   spreadsheetId?: string,
 ) {
-  return requestGas<IssuedInvoice>({
+  return requestGas<StoredIssuedInvoice>({
     action: 'archiveInvoice',
     token,
     invoice,
     pdfBase64,
     xmlText,
     ...(spreadsheetId ? { spreadsheetId } : {}),
-  })
+  }).then(normalizeIssuedInvoice)
 }

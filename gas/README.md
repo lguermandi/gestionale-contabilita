@@ -152,6 +152,12 @@ Le fatture emesse sono registrate nel foglio `Fatture` con numero progressivo
 per anno, payload JSON e stato. Ogni registrazione usa la colonna B, ignorata
 dal parser contabile, per l'ID idempotente. GAS valida e ricalcola importi e
 scritture contabili.
+I fogli `Fatture` e `Spese` mantengono lo schema esistente a otto colonne:
+pagamenti e nuovi attributi sono salvati nel payload JSON, senza migrazioni di
+colonne. Nei fogli contabili annuali i riferimenti a fatture e spese usano le
+colonne `Documento_Tipo` e `Documento_ID`; se mancano, GAS le aggiunge in coda
+all'intestazione durante la migrazione o prima di una scrittura, lasciando
+inalterate le sette colonne e le righe contabili legacy.
 
 Il PDF generato è un documento di cortesia e non è una fattura elettronica XML
 trasmessa al Sistema di Interscambio (SDI). Prima di usarlo per adempimenti

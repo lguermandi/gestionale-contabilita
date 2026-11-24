@@ -1,22 +1,30 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
-import { archiveInvoice, fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCompanyProfile, saveCustomer } from '../../api/ledgerApi'
+import { Link, useSearchParams } from 'react-router-dom'
+import { archiveInvoice, fetchChartOfAccounts, fetchCreditNotes, fetchCustomers, fetchInvoices, issueCreditNote, issueInvoice, saveCompanyProfile, saveCustomer, type ChartOfAccount } from '../../api/ledgerApi'
 import {
   calculateInvoiceTotals,
+  getInvoicePaidAmount,
+  getInvoicePaymentStatus,
+  getInvoiceRemainingAmount,
   validateInvoice,
   type CreditNoteDraft,
   type InvoiceCustomer,
   type InvoiceDraft,
+  type InvoicePayment,
   type IssuedCreditNote,
-  type InvoiceLine,
   type IssuedInvoice,
 } from '../../domain/invoicing'
+import type { LedgerTransaction } from '../../domain/accounting'
+import { queueTransaction } from '../../offline/offlineLedger'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useEntityStore } from '../../stores/entityStore'
 import { useLedgerStore } from '../../stores/ledgerStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { createInvoicePdf, downloadInvoicePdf } from './invoicePdf'
 import { buildFatturaPaXml, validateFatturaPaXml } from './fatturaPaXml'
+import { InvoiceForm } from './components/InvoiceForm'
+import { InvoiceList } from './components/InvoiceList'
+import { InvoicePaymentsModal, type DocumentPaymentInput } from './components/InvoicePaymentsModal'
 
 const inputClass = 'min-h-10 w-full border border-stone-300 bg-white px-3 text-sm focus:border-emerald-700 focus:outline-none'
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
@@ -46,17 +54,24 @@ function currentDate(year: number) {
     : `${year}-01-01`
 }
 
-function newLine(aliquotaIva = 22): InvoiceLine {
+function newLine(aliquotaIva = 22) {
   return { id: createId(), descrizione: '', quantita: 1, prezzoUnitario: 0, aliquotaIva }
 }
 
-function newDraft(year: number, accounts: InvoiceDraft['conti']): InvoiceDraft {
+function newDraft(year: number, accounts: InvoiceDraft['conti'], regimeFiscale = 'RF01', atecoCode = ''): InvoiceDraft {
   return {
     id: createId(),
     data: currentDate(year),
+    documentType: 'TD01',
+    revenueAccount: accounts.ricavi,
+    atecoCode,
+    regimeFiscale,
+    ritenutaAttiva: false,
+    bolloRiaddebitatoAlCliente: false,
+    payments: [],
     cliente: { ragioneSociale: '', indirizzo: '', partitaIva: '', email: '', nazione: 'Italia' },
     linee: [newLine()],
-    aliquotaIva: 22,
+    aliquotaIva: regimeFiscale === 'RF19' ? 0 : 22,
     aliquotaCassa: 0,
     aliquotaRitenuta: 0,
     note: '',
@@ -91,22 +106,25 @@ export function InvoicesPage({ year }: { year: number }) {
   const clearToken = useGasSessionStore((state) => state.clearToken)
   const spreadsheetId = useEntityStore((state) => state.activeSpreadsheetId)
   const refreshLedger = useLedgerStore((state) => state.refresh)
+  const transactions = useLedgerStore((state) => state.transactions)
+  const historyTransactions = useLedgerStore((state) => state.historyTransactions)
+  const [searchParams, setSearchParams] = useSearchParams()
   const company = useProfileStore((state) => state.companyProfile)
   const setCompanyProfileForSpreadsheet = useProfileStore((state) => state.setCompanyProfileForSpreadsheet)
-  const [draft, setDraft] = useState(() => newDraft(year, company.conti))
+  const [draft, setDraft] = useState(() => newDraft(
+    year,
+    company.conti,
+    company.regimeFiscale,
+    company.attivitaAteco?.[0]?.codice || company.ateco || '',
+  ))
+  const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccount[]>([])
+  const [chartOfAccountsError, setChartOfAccountsError] = useState('')
+  const [chartOfAccountsScope, setChartOfAccountsScope] = useState('')
   const [invoices, setInvoices] = useState<IssuedInvoice[]>([])
   const [customers, setCustomers] = useState<InvoiceCustomer[]>([])
   const [customerScope, setCustomerScope] = useState('')
   const [customerQuery, setCustomerQuery] = useState('')
   const [page, setPage] = useState<'invoice' | 'archive' | 'customers' | 'credit-note'>('archive')
-  const [invoiceQuery, setInvoiceQuery] = useState('')
-  const [invoiceCustomerQuery, setInvoiceCustomerQuery] = useState('')
-  const [invoiceFrom, setInvoiceFrom] = useState('')
-  const [invoiceTo, setInvoiceTo] = useState('')
-  const [invoiceStatus, setInvoiceStatus] = useState<'all' | 'paid' | 'open' | 'overdue'>('all')
-  const [invoicePageSize, setInvoicePageSize] = useState(10)
-  const [invoicePageNumber, setInvoicePageNumber] = useState(1)
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([])
   const [customerDraft, setCustomerDraft] = useState<InvoiceCustomer | null>(null)
   const [customerError, setCustomerError] = useState('')
   const [customerLoadError, setCustomerLoadError] = useState('')
@@ -125,9 +143,34 @@ export function InvoicesPage({ year }: { year: number }) {
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [archivingInvoiceId, setArchivingInvoiceId] = useState('')
-  const totals = useMemo(() => calculateInvoiceTotals(draft), [draft])
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState('')
+  const [paymentSaving, setPaymentSaving] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
+  const effectiveDraft = useMemo(() => {
+    const regimeFiscale = company.regimeFiscale || draft.regimeFiscale
+    return {
+      ...draft,
+      regimeFiscale,
+      ritenutaAttiva: regimeFiscale === 'RF19' ? false : draft.ritenutaAttiva,
+      aliquotaRitenuta: regimeFiscale === 'RF19' ? 0 : draft.aliquotaRitenuta,
+      atecoCode: draft.atecoCode || company.attivitaAteco?.[0]?.codice || company.ateco || '',
+    }
+  }, [company.ateco, company.attivitaAteco, company.regimeFiscale, draft])
+  const totals = useMemo(() => calculateInvoiceTotals(effectiveDraft), [effectiveDraft])
+  const fallbackChartAccounts = useMemo<ChartOfAccount[]>(() => [
+    { codice: 'locale-ricavi', descrizione: company.conti.ricavi, tipo: 'Ricavo', gestione: company.conti.gestione, attivo: true },
+    { codice: 'locale-costi', descrizione: company.conti.costi || 'Costi per acquisti', tipo: 'Costo', gestione: company.conti.gestione, attivo: true },
+  ], [company.conti.costi, company.conti.gestione, company.conti.ricavi])
+  const currentChartScope = `${token}:${spreadsheetId}`
+  const accountOptions = chartOfAccountsScope === currentChartScope
+    ? chartOfAccounts
+    : fallbackChartAccounts
+  const accountsError = chartOfAccountsError
+    || (!token || !spreadsheetId ? 'Il Piano dei Conti GAS non è disponibile offline.' : '')
   const visibleInvoices = useMemo(
-    () => invoiceScope === `${year}:${token}:${spreadsheetId}` ? invoices : [],
+    () => invoiceScope === `${year}:${token}:${spreadsheetId}`
+      ? invoices.filter((invoice) => invoice.data.slice(0, 4) === String(year))
+      : [],
     [invoiceScope, invoices, spreadsheetId, token, year],
   )
   const scopedCreditNotes = creditNoteScope === `${year}:${token}:${spreadsheetId}` ? creditNotes : []
@@ -137,32 +180,6 @@ export function InvoicesPage({ year }: { year: number }) {
       .reduce((sum, note) => sum + Math.round(note.importo * 100), 0)
     return Math.max(0, Math.round(invoice.totali.totale * 100) - alreadyCreditedCents) / 100
   }
-  const filteredInvoices = useMemo(() => {
-    const query = invoiceQuery.trim().toLocaleLowerCase('it')
-    const customerQuery = invoiceCustomerQuery.trim().toLocaleLowerCase('it')
-    const today = new Date().toISOString().slice(0, 10)
-    return visibleInvoices.filter((invoice) => {
-      const text = [
-        invoice.numero,
-        invoice.cliente.ragioneSociale,
-        ...invoice.linee.map((line) => line.descrizione),
-      ].join(' ').toLocaleLowerCase('it')
-      const paid = invoice.pagamento?.incassata === true
-      const overdue = !paid && Boolean(invoice.pagamento?.scadenza && invoice.pagamento.scadenza < today)
-      const statusMatches = invoiceStatus === 'all'
-        || (invoiceStatus === 'paid' && paid)
-        || (invoiceStatus === 'open' && !paid && !overdue)
-        || (invoiceStatus === 'overdue' && overdue)
-      return (!query || text.includes(query))
-        && (!customerQuery || invoice.cliente.ragioneSociale.toLocaleLowerCase('it').includes(customerQuery))
-        && (!invoiceFrom || invoice.data >= invoiceFrom)
-        && (!invoiceTo || invoice.data <= invoiceTo)
-        && statusMatches
-    })
-  }, [invoiceCustomerQuery, invoiceFrom, invoiceQuery, invoiceStatus, invoiceTo, visibleInvoices])
-  const invoicePageCount = Math.max(1, Math.ceil(filteredInvoices.length / invoicePageSize))
-  const safeInvoicePageNumber = Math.min(invoicePageNumber, invoicePageCount)
-  const pagedInvoices = filteredInvoices.slice((safeInvoicePageNumber - 1) * invoicePageSize, safeInvoicePageNumber * invoicePageSize)
   const scopedCustomers = useMemo(
     () => customerScope === `${token}:${spreadsheetId}` ? customers : [],
     [customerScope, customers, spreadsheetId, token],
@@ -174,6 +191,43 @@ export function InvoicesPage({ year }: { year: number }) {
       customer.email, customer.tipologia, customer.telefono,
     ].some((value) => value?.toLocaleLowerCase('it').includes(query)))
   }, [customerQuery, scopedCustomers])
+  const cashAccounts = useMemo(() => {
+    const accounts = accountOptions
+      .filter((account) => /banca|cassa|conto corrente|liquidit|postepay|paypal/i.test(account.descrizione))
+      .map((account) => account.descrizione)
+    if (company.conti.incassi) accounts.unshift(company.conti.incassi)
+    return [...new Set(accounts)]
+  }, [accountOptions, company.conti.incassi])
+  const linkedInvoiceId = searchParams.get('documentId')
+  const paymentInvoice = invoiceScope === `${year}:${token}:${spreadsheetId}`
+    ? invoices.find((invoice) => invoice.id === (paymentInvoiceId || linkedInvoiceId))
+    : undefined
+  const allLedgerTransactions = useMemo(() => {
+    const unique = new Map([...historyTransactions, ...transactions].map((transaction) => [transaction.id, transaction]))
+    return [...unique.values()]
+  }, [historyTransactions, transactions])
+
+  useEffect(() => {
+    if (!token || !spreadsheetId) return
+    let cancelled = false
+    fetchChartOfAccounts(token, spreadsheetId).then((accounts) => {
+      if (!cancelled) {
+        const merged = [...accounts]
+        fallbackChartAccounts.forEach((fallback) => {
+          if (!merged.some((account) => account.descrizione === fallback.descrizione)) merged.push(fallback)
+        })
+        setChartOfAccounts(merged)
+        setChartOfAccountsScope(`${token}:${spreadsheetId}`)
+        setChartOfAccountsError('')
+      }
+    }).catch((error: unknown) => {
+      if (cancelled) return
+      const text = error instanceof Error ? error.message : 'Impossibile caricare il Piano dei Conti.'
+      setChartOfAccountsError(text)
+      if (text.includes('SESSION_EXPIRED')) clearToken()
+    })
+    return () => { cancelled = true }
+  }, [clearToken, fallbackChartAccounts, spreadsheetId, token])
 
   useEffect(() => {
     if (!token || !spreadsheetId) return
@@ -224,25 +278,6 @@ export function InvoicesPage({ year }: { year: number }) {
     })
     return () => { cancelled = true }
   }, [clearToken, spreadsheetId, token])
-
-  function updateCustomer(key: keyof InvoiceDraft['cliente'], value: string) {
-    setDraft((current) => ({ ...current, cliente: { ...current.cliente, [key]: value } }))
-  }
-
-  function updateLine(id: string, key: keyof Omit<InvoiceLine, 'id'>, value: string) {
-    setDraft((current) => ({
-      ...current,
-      linee: current.linee.map((line) => line.id === id
-        ? { ...line, [key]: key === 'descrizione' ? value : Number(value) }
-        : line),
-    }))
-  }
-
-  function selectCustomer(id: string) {
-    const selected = customers.find((customer) => customer.id === id)
-    if (selected) setDraft((current) => ({ ...current, cliente: { ...selected } }))
-    else setDraft((current) => ({ ...current, cliente: { ...current.cliente, id: undefined } }))
-  }
 
   async function handleSaveCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -319,7 +354,19 @@ export function InvoicesPage({ year }: { year: number }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setMessage('')
-    const validationErrors = validateInvoice(draft)
+    const submissionDraft = effectiveDraft.pagamento?.incassata && !effectiveDraft.payments.length
+      ? {
+          ...effectiveDraft,
+          payments: [{
+            data: effectiveDraft.data,
+            importo: calculateInvoiceTotals(effectiveDraft).totale,
+            conto: effectiveDraft.conti.incassi || 'Banca c/c',
+            linkedTransactionId: effectiveDraft.id,
+          }],
+        }
+      : effectiveDraft
+    const submissionTotals = calculateInvoiceTotals(submissionDraft)
+    const validationErrors = validateInvoice(submissionDraft)
     if (draft.data.slice(0, 4) !== String(year)) validationErrors.push(`La data deve appartenere all’esercizio ${year}.`)
     if (!company.ragioneSociale.trim() || !company.indirizzo.trim() || !company.partitaIva.trim()) {
       validationErrors.push('Completa ragione sociale, sede legale e partita IVA nelle Impostazioni.')
@@ -333,10 +380,10 @@ export function InvoicesPage({ year }: { year: number }) {
       validationErrors.push('Completa CAP e comune della sede legale nelle Impostazioni.')
     }
     const xmlErrors = validateFatturaPaXml({
-      ...draft,
+      ...submissionDraft,
       numero: '',
       stato: 'emessa',
-      totali: totals,
+      totali: submissionTotals,
     }, company)
     validationErrors.push(...xmlErrors)
     setErrors([...new Set(validationErrors)])
@@ -353,7 +400,7 @@ export function InvoicesPage({ year }: { year: number }) {
     setSaving(true)
     let archiveErrorMessage = ''
     try {
-      const invoice = await issueInvoice(token, draft, spreadsheetId || undefined)
+      const invoice = await issueInvoice(token, submissionDraft, spreadsheetId || undefined)
       let archivedInvoice = invoice
       try {
         const pdf = createInvoicePdf(invoice, company).output('arraybuffer') as ArrayBuffer
@@ -392,7 +439,7 @@ export function InvoicesPage({ year }: { year: number }) {
           ? `Fattura ${invoice.numero} emessa. Aggiornamento impostazioni non riuscito: ${profileSaveError}`
           : `Fattura ${invoice.numero} emessa.`)
       }
-      setDraft(newDraft(year, draft.conti))
+      setDraft(newDraft(year, draft.conti, company.regimeFiscale, company.attivitaAteco?.[0]?.codice || company.ateco || ''))
       setErrors([])
     } catch (error) {
       const text = error instanceof Error ? error.message : 'Emissione della fattura non riuscita.'
@@ -400,6 +447,54 @@ export function InvoicesPage({ year }: { year: number }) {
       setMessage(text)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleInvoicePayment(paymentInput: DocumentPaymentInput) {
+    if (!paymentInvoice || !spreadsheetId) return
+    setPaymentError('')
+    if (paymentInput.importo > getInvoiceRemainingAmount(paymentInvoice)) {
+      setPaymentError('Il residuo è cambiato: aggiorna la fattura e riprova.')
+      return
+    }
+    const transactionId = createId()
+    const payment: InvoicePayment = { ...paymentInput, linkedTransactionId: transactionId }
+    const description = `Incasso fattura ${paymentInvoice.numero}`
+    const transaction: LedgerTransaction = {
+      id: transactionId,
+      data: payment.data,
+      totale: payment.importo,
+      relatedDocumentType: 'invoice',
+      relatedDocumentId: paymentInvoice.id,
+      movimenti: [
+        { conto: payment.conto, descrizione: description, gestione: '', dare: payment.importo, avere: 0 },
+        { conto: paymentInvoice.conti.clienti, descrizione: description, gestione: '', dare: 0, avere: payment.importo },
+      ],
+    }
+    setPaymentSaving(true)
+    try {
+      await queueTransaction(transaction, 'business', spreadsheetId, {
+        documentType: 'invoice',
+        documentId: paymentInvoice.id,
+        payment,
+      })
+      setInvoices((current) => current.map((invoice) => invoice.id === paymentInvoice.id
+        ? {
+            ...invoice,
+            payments: [...invoice.payments, payment],
+            pagamento: {
+              ...(invoice.pagamento || { metodo: '', scadenza: '', incassata: false }),
+              incassata: getInvoiceRemainingAmount(invoice) - payment.importo <= 0.005,
+            },
+          }
+        : invoice))
+      void refreshLedger(year, token, 'business', spreadsheetId)
+      window.dispatchEvent(new Event('accounting:sync-request'))
+      setMessage('Incasso aggiunto alla Prima Nota e messo in coda per la sincronizzazione GAS.')
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : 'Impossibile accodare l’incasso.')
+    } finally {
+      setPaymentSaving(false)
     }
   }
 
@@ -435,32 +530,6 @@ export function InvoicesPage({ year }: { year: number }) {
     } finally {
       setArchivingInvoiceId('')
     }
-  }
-
-  function downloadSelectedInvoices() {
-    const selected = visibleInvoices.filter((invoice) => selectedInvoiceIds.includes(invoice.id))
-    if (!selected.length) return
-    const rows = [
-      ['Numero', 'Data', 'Cliente', 'Oggetto', 'Totale EUR', 'Stato'],
-      ...selected.map((invoice) => [
-        invoice.numero,
-        invoice.data,
-        invoice.cliente.ragioneSociale,
-        invoice.linee.map((line) => line.descrizione).join('; '),
-        String(invoice.totali.totale),
-        invoice.pagamento?.incassata ? 'Incassata' : 'Da incassare',
-      ]),
-    ]
-    const csv = rows.map((row) => row.map((value) => {
-      const safeValue = /^[=+\-@]/.test(value) ? `'${value}` : value
-      return `"${safeValue.replaceAll('"', '""')}"`
-    }).join(';')).join('\r\n')
-    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `Fatture-selezionate-${year}.csv`
-    anchor.click()
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -525,82 +594,6 @@ export function InvoicesPage({ year }: { year: number }) {
             </table>
           </div>
         </section>
-      ) : page === 'archive' ? (
-        <section className="border border-stone-200 bg-white">
-          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 p-5">
-            <label className="min-w-60 flex-1 text-sm text-stone-600">Ricerca fatture
-              <input className={`${inputClass} mt-1`} type="search" placeholder="Numero, cliente o descrizione…" value={invoiceQuery} onChange={(event) => { setInvoiceQuery(event.target.value); setInvoicePageNumber(1) }} />
-            </label>
-            <button type="button" className="min-h-10 bg-stone-950 px-4 text-sm font-medium text-white hover:bg-emerald-900" onClick={() => setPage('invoice')}>Nuova fattura</button>
-            <div className="grid w-full gap-3 md:grid-cols-4">
-              <label className="text-sm text-stone-600">Cliente
-                <input className={`${inputClass} mt-1`} type="search" value={invoiceCustomerQuery} onChange={(event) => { setInvoiceCustomerQuery(event.target.value); setInvoicePageNumber(1) }} placeholder="Cerca cliente" />
-              </label>
-              <label className="text-sm text-stone-600">Da
-                <input className={`${inputClass} mt-1`} type="date" value={invoiceFrom} onChange={(event) => { setInvoiceFrom(event.target.value); setInvoicePageNumber(1) }} />
-              </label>
-              <label className="text-sm text-stone-600">A
-                <input className={`${inputClass} mt-1`} type="date" value={invoiceTo} onChange={(event) => { setInvoiceTo(event.target.value); setInvoicePageNumber(1) }} />
-              </label>
-              <label className="text-sm text-stone-600">Stato
-                <select className={`${inputClass} mt-1`} value={invoiceStatus} onChange={(event) => { setInvoiceStatus(event.target.value as typeof invoiceStatus); setInvoicePageNumber(1) }}>
-                  <option value="all">Tutti</option><option value="open">Da incassare</option><option value="paid">Incassate</option><option value="overdue">Scadute</option>
-                </select>
-              </label>
-            </div>
-            <div className="flex w-full flex-wrap items-center justify-between gap-3 text-xs text-stone-500">
-              <span>Mostrati {pagedInvoices.length} risultati su {filteredInvoices.length}</span>
-              <label className="flex items-center gap-2">Risultati per pagina
-                <select className="min-h-9 border border-stone-300 bg-white px-2 text-sm text-stone-800" value={invoicePageSize} onChange={(event) => { setInvoicePageSize(Number(event.target.value)); setInvoicePageNumber(1) }}>
-                  {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
-                </select>
-              </label>
-            </div>
-            {selectedInvoiceIds.length > 0 && <div className="flex w-full items-center justify-between bg-indigo-50 px-3 py-2 text-sm text-indigo-900"><span>{selectedInvoiceIds.length} selezionate</span><button type="button" className="font-medium underline" onClick={downloadSelectedInvoices}>Esporta selezione CSV</button></div>}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-slate-100 text-xs uppercase text-stone-500"><tr><th className="w-12 px-4 py-3"><input type="checkbox" aria-label="Seleziona fatture visibili" checked={pagedInvoices.length > 0 && pagedInvoices.every((invoice) => selectedInvoiceIds.includes(invoice.id))} onChange={(event) => setSelectedInvoiceIds((current) => event.target.checked ? [...new Set([...current, ...pagedInvoices.map((invoice) => invoice.id)])] : current.filter((id) => !pagedInvoices.some((invoice) => invoice.id === id)))} /></th><th className="px-4 py-3">N.</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Oggetto</th><th className="px-4 py-3 text-right">Importo</th><th className="px-4 py-3">Data</th><th className="px-4 py-3">Stato</th><th className="px-4 py-3">Scadenza</th><th className="px-4 py-3"><span className="sr-only">Azioni</span></th></tr></thead>
-              <tbody className="divide-y divide-stone-100">
-                {pagedInvoices.map((invoice) => {
-                  const overdue = !invoice.pagamento?.incassata && Boolean(invoice.pagamento?.scadenza && invoice.pagamento.scadenza < new Date().toISOString().slice(0, 10))
-                  return (
-                    <tr key={invoice.id}>
-                      <td className="px-4 py-4"><input type="checkbox" aria-label={`Seleziona fattura ${invoice.numero}`} checked={selectedInvoiceIds.includes(invoice.id)} onChange={(event) => setSelectedInvoiceIds((current) => event.target.checked ? [...current, invoice.id] : current.filter((id) => id !== invoice.id))} /></td>
-                      <td className="px-4 py-4 font-semibold">{invoice.numero}</td>
-                      <td className="px-4 py-4">{invoice.cliente.ragioneSociale}</td>
-                      <td className="max-w-56 truncate px-4 py-4" title={invoice.linee.map((line) => line.descrizione).join(', ')}>{invoice.linee.map((line) => line.descrizione).join(', ') || '—'}</td>
-                      <td className="px-4 py-4 text-right font-semibold tabular-nums">{euro.format(invoice.totali.totale)}</td>
-                      <td className="px-4 py-4">{new Date(`${invoice.data}T00:00:00`).toLocaleDateString('it-IT')}</td>
-                      <td className="px-4 py-4"><span className={`inline-flex px-2 py-1 text-xs font-medium ${invoice.pagamento?.incassata ? 'bg-emerald-100 text-emerald-900' : overdue ? 'bg-rose-100 text-rose-900' : 'bg-amber-100 text-amber-900'}`}>{invoice.pagamento?.incassata ? 'Incassata' : overdue ? 'Scaduta' : 'Da incassare'}</span></td>
-                      <td className="px-4 py-4">{invoice.pagamento?.scadenza ? new Date(`${invoice.pagamento.scadenza}T00:00:00`).toLocaleDateString('it-IT') : '—'}</td>
-                      <td className="px-4 py-4 text-right">
-                        <div className="flex justify-end gap-3">
-                          <button className="font-medium text-emerald-900 underline" type="button" onClick={() => handlePdf(invoice)}>PDF</button>
-                          <button className="font-medium text-indigo-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => handleXml(invoice)}>
-                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : 'XML su Drive'}
-                          </button>
-                          <button className="font-medium text-stone-700 underline" type="button" disabled={archivingInvoiceId === invoice.id} onClick={() => void handleArchive(invoice)}>
-                            {archivingInvoiceId === invoice.id ? 'Archiviazione…' : invoice.archivio ? 'Aggiorna Drive' : 'Archivia'}
-                          </button>
-                          {invoice.archivio?.folderUrl && (
-                            <a className="font-medium text-stone-600 underline" href={invoice.archivio.folderUrl} target="_blank" rel="noreferrer">Drive</a>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {!pagedInvoices.length && <tr><td className="px-5 py-8 text-center text-stone-500" colSpan={9}>{visibleInvoices.length ? 'Nessuna fattura corrisponde ai filtri.' : 'Nessuna fattura emessa per questo esercizio.'}</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between border-t border-stone-200 px-5 py-3 text-sm">
-            <button type="button" className="min-h-9 px-3 text-stone-700 disabled:opacity-40" disabled={invoicePageNumber <= 1} onClick={() => setInvoicePageNumber((current) => Math.max(1, current - 1))}>Precedente</button>
-            <span className="text-xs text-stone-500">Pagina {safeInvoicePageNumber} di {invoicePageCount}</span>
-            <button type="button" className="min-h-9 px-3 text-stone-700 disabled:opacity-40" disabled={safeInvoicePageNumber >= invoicePageCount} onClick={() => setInvoicePageNumber((current) => Math.min(invoicePageCount, current + 1))}>Successiva</button>
-          </div>
-        </section>
       ) : page === 'credit-note' ? (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(350px,0.9fr)_minmax(0,1.1fr)]">
           <form onSubmit={(event) => void handleCreditNote(event)} className="space-y-5 border border-stone-200 bg-white p-5">
@@ -659,133 +652,68 @@ export function InvoicesPage({ year }: { year: number }) {
             </section>
           </section>
         </div>
-      ) : (
-        <>
-          <form onSubmit={handleSubmit} className="grid items-start gap-6 xl:grid-cols-[minmax(350px,0.9fr)_minmax(0,1.1fr)]">
-            <div className="space-y-5">
-              <section className="border border-stone-200 bg-white p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <h2 className="font-semibold text-stone-950">Intestazione</h2>
-                  <button type="button" className="text-sm font-medium text-emerald-900 underline" onClick={() => { setCustomerDraft(emptyCustomer()); setCustomerError('') }}>Aggiungi cliente</button>
-                </div>
-                <label className="mb-4 block text-sm text-stone-700">Cliente salvato
-                  <select className={`${inputClass} mt-1`} value={draft.cliente.id || ''} onChange={(event) => selectCustomer(event.target.value)}>
-                    <option value="">Inserisci i dati manualmente</option>
-                    {scopedCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.ragioneSociale}</option>)}
-                  </select>
-                </label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm text-stone-700 sm:col-span-2">Ragione sociale
-                    <input className={inputClass} value={draft.cliente.ragioneSociale} maxLength={200} onChange={(event) => updateCustomer('ragioneSociale', event.target.value)} required />
-                  </label>
-                  <label className="block text-sm text-stone-700 sm:col-span-2">Indirizzo
-                    <input className={inputClass} value={draft.cliente.indirizzo} maxLength={200} onChange={(event) => updateCustomer('indirizzo', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Partita IVA
-                    <input className={inputClass} value={draft.cliente.partitaIva} maxLength={32} onChange={(event) => updateCustomer('partitaIva', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Codice fiscale
-                    <input className={inputClass} value={draft.cliente.codiceFiscale || ''} maxLength={32} onChange={(event) => updateCustomer('codiceFiscale', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">CAP
-                    <input className={inputClass} value={draft.cliente.cap || ''} maxLength={16} onChange={(event) => updateCustomer('cap', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Comune
-                    <input className={inputClass} value={draft.cliente.comune || ''} maxLength={100} onChange={(event) => updateCustomer('comune', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Email
-                    <input className={inputClass} type="email" value={draft.cliente.email} maxLength={200} onChange={(event) => updateCustomer('email', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Telefono
-                    <input className={inputClass} type="tel" value={draft.cliente.telefono || ''} maxLength={32} onChange={(event) => updateCustomer('telefono', event.target.value)} />
-                  </label>
-                  <label className="block text-sm text-stone-700">Tipologia
-                    <select className={inputClass} value={draft.cliente.tipologia || 'Società'} onChange={(event) => updateCustomer('tipologia', event.target.value)}>
-                      {['Società', 'Professionista', 'Privato', 'Pubblica amministrazione', 'Associazione', 'Altro'].map((type) => <option key={type}>{type}</option>)}
-                    </select>
-                  </label>
-                  <label className="block text-sm text-stone-700">Data emissione
-                    <input className={inputClass} type="date" value={draft.data} onChange={(event) => setDraft((current) => ({ ...current, data: event.target.value }))} required />
-                  </label>
-                </div>
-              </section>
+      ) : page === 'invoice' ? (
+        <InvoiceForm
+          draft={effectiveDraft}
+          setDraft={setDraft}
+          customers={scopedCustomers}
+          company={company}
+          accounts={accountOptions}
+          accountsError={accountsError}
+          totals={totals}
+          errors={errors}
+          message={message}
+          saving={saving}
+          canIssue={Boolean(token && company.ragioneSociale && company.partitaIva)}
+          onSubmit={(event) => { void handleSubmit(event) }}
+          onAddCustomer={() => { setCustomerDraft(emptyCustomer()); setCustomerError('') }}
+        />
+      ) : null}
 
-              <section className="overflow-hidden border border-stone-200 bg-white">
-                <div className="border-b border-stone-200 px-5 py-4"><h2 className="font-semibold text-stone-950">Prestazioni</h2></div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[680px] text-left text-sm">
-                    <thead className="bg-slate-100 text-xs uppercase text-stone-500"><tr><th className="px-3 py-3">Descrizione</th><th className="w-20 px-3 py-3 text-right">Q.tà</th><th className="w-28 px-3 py-3 text-right">Prezzo</th><th className="w-24 px-3 py-3 text-right">IVA %</th><th className="w-24 px-3 py-3 text-right">Importo</th><th className="w-10"><span className="sr-only">Azioni</span></th></tr></thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {draft.linee.map((line) => (
-                        <tr key={line.id}>
-                          <td className="p-2"><input className={inputClass} aria-label="Descrizione prestazione" value={line.descrizione} maxLength={200} onChange={(event) => updateLine(line.id, 'descrizione', event.target.value)} required /></td>
-                          <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Quantità" type="number" min="0.01" step="0.01" value={line.quantita} onChange={(event) => updateLine(line.id, 'quantita', event.target.value)} required /></td>
-                          <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Prezzo unitario" type="number" min="0" step="0.01" value={line.prezzoUnitario} onChange={(event) => updateLine(line.id, 'prezzoUnitario', event.target.value)} required /></td>
-                          <td className="p-2"><input className={`${inputClass} text-right tabular-nums`} aria-label="Aliquota IVA" type="number" min="0" max="100" step="0.1" value={line.aliquotaIva ?? draft.aliquotaIva} onChange={(event) => updateLine(line.id, 'aliquotaIva', event.target.value)} required /></td>
-                          <td className="px-2 text-right tabular-nums">{euro.format(line.quantita * line.prezzoUnitario)}</td>
-                          <td className="p-2"><button className="size-10 text-lg text-stone-500 disabled:opacity-30" type="button" title="Rimuovi prestazione" aria-label="Rimuovi prestazione" disabled={draft.linee.length <= 1} onClick={() => setDraft((current) => ({ ...current, linee: current.linee.filter((item) => item.id !== line.id) }))}>×</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="border-t border-stone-200 px-5 py-3"><button className="w-full border border-stone-300 py-2 text-sm font-medium hover:bg-stone-50" type="button" onClick={() => setDraft((current) => ({ ...current, linee: [...current.linee, newLine(current.aliquotaIva)] }))}>Aggiungi prestazione</button></div>
-              </section>
+      <div hidden={page !== 'archive'}>
+        <InvoiceList
+          invoices={visibleInvoices}
+          year={year}
+          archivingInvoiceId={archivingInvoiceId}
+          onNewInvoice={() => setPage('invoice')}
+          onPdf={handlePdf}
+          onXml={handleXml}
+          onArchive={(invoice) => void handleArchive(invoice)}
+          onPayments={(invoice) => { setPaymentError(''); setPaymentInvoiceId(invoice.id) }}
+        />
+      </div>
 
-              <section className="border border-stone-200 bg-white p-5">
-                <h2 className="mb-4 font-semibold text-stone-950">Pagamento e note</h2>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block text-sm text-stone-700">Metodo di pagamento
-                    <select className={`${inputClass} mt-1`} value={draft.pagamento?.metodo || ''} onChange={(event) => setDraft((current) => ({ ...current, pagamento: { ...current.pagamento!, metodo: event.target.value } }))}>
-                      <option value="">Da concordare</option>
-                      {['Bonifico', 'Carta', 'PayPal', 'Contanti', 'Altro'].map((method) => <option key={method}>{method}</option>)}
-                    </select>
-                  </label>
-                  <label className="block text-sm text-stone-700">Scadenza
-                    <input className={`${inputClass} mt-1`} type="date" value={draft.pagamento?.scadenza || ''} onChange={(event) => setDraft((current) => ({ ...current, pagamento: { ...current.pagamento!, scadenza: event.target.value } }))} />
-                  </label>
-                </div>
-                <label className="mt-4 flex items-center gap-2 text-sm text-stone-700">
-                  <input type="checkbox" checked={draft.pagamento?.incassata || false} onChange={(event) => setDraft((current) => ({ ...current, pagamento: { ...current.pagamento!, incassata: event.target.checked } }))} />
-                  Fattura già incassata
-                </label>
-                {draft.pagamento?.incassata && <p className="mt-2 text-xs text-stone-500">L’incasso sarà registrato nel conto “{draft.conti.incassi}”. Puoi modificarlo nelle Impostazioni.</p>}
-                <div className="mt-4 border-t border-stone-200 pt-4">
-                  <label className="flex items-center gap-2 text-sm text-stone-700">
-                    <input type="checkbox" checked={draft.marcaDaBollo?.addebitata || false} onChange={(event) => setDraft((current) => ({ ...current, marcaDaBollo: { ...current.marcaDaBollo!, addebitata: event.target.checked } }))} />
-                    Addebita marca da bollo
-                  </label>
-                  {draft.marcaDaBollo?.addebitata && (
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className="block text-sm text-stone-700">Importo
-                        <input className={`${inputClass} mt-1`} type="number" min="0.01" step="0.01" value={draft.marcaDaBollo.importo} onChange={(event) => setDraft((current) => ({ ...current, marcaDaBollo: { ...current.marcaDaBollo!, importo: Number(event.target.value) } }))} />
-                      </label>
-                      <label className="block text-sm text-stone-700">ID marca da bollo
-                        <input className={`${inputClass} mt-1`} maxLength={100} value={draft.marcaDaBollo.identificativo} onChange={(event) => setDraft((current) => ({ ...current, marcaDaBollo: { ...current.marcaDaBollo!, identificativo: event.target.value } }))} />
-                      </label>
-                    </div>
-                  )}
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <RateInput label="Cassa (%)" value={draft.aliquotaCassa} onChange={(value) => setDraft((current) => ({ ...current, aliquotaCassa: value }))} />
-                  <RateInput label="Ritenuta (%)" value={draft.aliquotaRitenuta} onChange={(value) => setDraft((current) => ({ ...current, aliquotaRitenuta: value }))} />
-                </div>
-                <label className="mt-4 block text-sm text-stone-700">Note
-                  <textarea className="mt-1 min-h-20 w-full border border-stone-300 bg-white p-3 text-sm focus:border-emerald-700 focus:outline-none" value={draft.note} maxLength={500} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} />
-                </label>
-              </section>
-            </div>
-
-            <div className="space-y-4 xl:sticky xl:top-5">
-              <InvoicePreview draft={draft} company={company} totals={totals} />
-              {errors.length > 0 && <ul className="list-disc border border-rose-200 bg-rose-50 px-8 py-3 text-sm text-rose-800" role="alert">{errors.map((error) => <li key={error}>{error}</li>)}</ul>}
-              {message && <p className="text-sm text-stone-700" role="status">{message}</p>}
-              <button className="min-h-12 w-full bg-stone-950 px-5 text-sm font-semibold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50" type="submit" disabled={saving || !token || !company.ragioneSociale || !company.partitaIva}>{saving ? 'Emissione…' : 'Emetti e archivia su Drive'}</button>
-            </div>
-          </form>
-
-        </>
-      )}
+      {paymentInvoice && <InvoicePaymentsModal
+        key={`${paymentInvoice.id}:${getInvoiceRemainingAmount(paymentInvoice)}`}
+        documentLabel={paymentInvoice.documentType}
+        documentNumber={paymentInvoice.numero}
+        counterparty={paymentInvoice.cliente.ragioneSociale}
+        status={getInvoicePaymentStatus(paymentInvoice)}
+        total={paymentInvoice.totali.totale}
+        paid={getInvoicePaidAmount(paymentInvoice)}
+        remaining={getInvoiceRemainingAmount(paymentInvoice)}
+        dueDate={paymentInvoice.pagamento?.scadenza}
+        payments={paymentInvoice.payments}
+        transactions={allLedgerTransactions.filter((transaction) => (
+          transaction.id === paymentInvoice.id
+          || transaction.id === paymentInvoice.linkedIssueTransactionId
+          || transaction.relatedDocumentType === 'invoice' && transaction.relatedDocumentId === paymentInvoice.id
+        ))}
+        cashAccounts={cashAccounts}
+        canPay={!['TD04', 'TD16', 'TD17', 'TD18', 'TD19'].includes(paymentInvoice.documentType)}
+        busy={paymentSaving}
+        errorMessage={paymentError}
+        onClose={() => {
+          setPaymentInvoiceId('')
+          setPaymentError('')
+          if (linkedInvoiceId) {
+            const nextParams = new URLSearchParams(searchParams)
+            nextParams.delete('documentId')
+            setSearchParams(nextParams, { replace: true })
+          }
+        }}
+        onRegister={(payment) => { void handleInvoicePayment(payment) }}
+      />}
 
       {customerDraft && (
         <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-slate-950/60 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCustomerDraft(null) }}>
@@ -825,14 +753,6 @@ export function InvoicesPage({ year }: { year: number }) {
   )
 }
 
-function RateInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  return <label className="block text-sm text-stone-700">{label}<input className={`${inputClass} text-right tabular-nums`} type="number" min="0" max="100" step="0.1" value={value} onChange={(event) => onChange(Number(event.target.value))} required /></label>
-}
-
-function TotalRow({ label, value }: { label: string; value: number }) {
-  return <div className="flex justify-between gap-4"><dt className="text-stone-600">{label}</dt><dd className="shrink-0 tabular-nums">{euro.format(value)}</dd></div>
-}
-
 function CustomerInput({
   label,
   field,
@@ -860,46 +780,5 @@ function CustomerInput({
         onChange={(event) => onChange((current) => current && ({ ...current, [field]: event.target.value }))}
       />
     </label>
-  )
-}
-
-function InvoicePreview({
-  draft,
-  company,
-  totals,
-}: {
-  draft: InvoiceDraft
-  company: ReturnType<typeof useProfileStore.getState>['companyProfile']
-  totals: ReturnType<typeof calculateInvoiceTotals>
-}) {
-  return (
-    <section className="border border-stone-200 bg-slate-100 p-4 md:p-6">
-      <article className="min-h-[560px] bg-white p-5 shadow-sm md:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-200 pb-5">
-          <div><h2 className="text-xl font-semibold text-stone-950">Fattura</h2><p className="mt-1 text-sm text-stone-500">Anteprima · {draft.data ? new Date(`${draft.data}T00:00:00`).toLocaleDateString('it-IT') : 'Data emissione'}</p></div>
-          <span className="text-xs font-medium uppercase tracking-wide text-stone-500">Bozza</span>
-        </div>
-        <div className="grid gap-6 py-6 sm:grid-cols-2">
-          <div><p className="text-sm font-semibold text-indigo-600">{company.ragioneSociale || 'La tua attività'}</p><p className="mt-2 whitespace-pre-line text-xs leading-5 text-stone-600">{[company.indirizzo, company.partitaIva && `P. IVA ${company.partitaIva}`, company.email].filter(Boolean).join('\n') || 'Dati emittente'}</p></div>
-          <div className="sm:text-right"><p className="text-xs uppercase text-stone-500">Destinatario</p><p className="mt-1 font-medium text-stone-950">{draft.cliente.ragioneSociale || 'Nome cliente'}</p><p className="mt-2 whitespace-pre-line text-xs leading-5 text-stone-600">{[draft.cliente.indirizzo, [draft.cliente.cap, draft.cliente.comune].filter(Boolean).join(' '), draft.cliente.partitaIva && `P. IVA ${draft.cliente.partitaIva}`, draft.cliente.codiceFiscale && `C.F. ${draft.cliente.codiceFiscale}`].filter(Boolean).join('\n')}</p></div>
-        </div>
-        <div className="border-t border-stone-200">
-          <div className="flex justify-between py-3 text-xs font-semibold uppercase text-stone-500"><span>Descrizione</span><span>Importo</span></div>
-          {draft.linee.map((line) => <div key={line.id} className="flex justify-between gap-3 border-t border-stone-100 py-3 text-sm"><span>{line.descrizione || 'Prestazione'} <span className="text-xs text-stone-500">× {line.quantita} · IVA {line.aliquotaIva ?? draft.aliquotaIva}%</span></span><span className="shrink-0 tabular-nums">{euro.format(line.quantita * line.prezzoUnitario)}</span></div>)}
-        </div>
-        <dl className="mt-6 space-y-2 border-t border-stone-200 pt-4 text-sm">
-          <TotalRow label="Totale prestazioni" value={totals.imponibile} />
-          {totals.cassa > 0 && <TotalRow label="Cassa previdenziale" value={totals.cassa} />}
-          {totals.ivaPerAliquota.map((item) => <TotalRow key={item.aliquota} label={`IVA (${item.aliquota}%)`} value={item.iva} />)}
-          {totals.ritenuta > 0 && <TotalRow label="Ritenuta d’acconto" value={-totals.ritenuta} />}
-          {totals.bollo > 0 && <TotalRow label="Marca da bollo" value={totals.bollo} />}
-          <div className="flex justify-between border-t border-stone-300 pt-3 text-base font-semibold"><dt>Totale</dt><dd className="tabular-nums">{euro.format(totals.totale)}</dd></div>
-        </dl>
-        <div className="mt-8 grid gap-5 border-t border-stone-200 pt-5 text-xs sm:grid-cols-2">
-          <div><p className="mb-2 font-semibold text-stone-800">Modalità di pagamento</p><p className="text-stone-600">{draft.pagamento?.metodo || 'Da concordare'}</p>{draft.pagamento?.scadenza && <p className="mt-2 text-stone-600">Da saldare entro il {new Date(`${draft.pagamento.scadenza}T00:00:00`).toLocaleDateString('it-IT')}</p>}{draft.pagamento?.incassata && <p className="mt-2 font-medium text-emerald-800">Pagamento già ricevuto</p>}</div>
-          <div><p className="mb-2 font-semibold text-stone-800">Note</p><p className="whitespace-pre-line text-stone-600">{draft.note || '—'}</p>{draft.marcaDaBollo?.addebitata && draft.marcaDaBollo.identificativo && <p className="mt-2 text-stone-600">ID marca da bollo: {draft.marcaDaBollo.identificativo}</p>}</div>
-        </div>
-      </article>
-    </section>
   )
 }

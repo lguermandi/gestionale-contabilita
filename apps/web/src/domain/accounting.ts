@@ -1,3 +1,5 @@
+import type { IssuedInvoice } from './invoicing'
+
 export interface LedgerMovement {
   conto: string
   descrizione: string
@@ -11,6 +13,8 @@ export interface LedgerTransaction {
   data: string
   totale: number
   movimenti: LedgerMovement[]
+  relatedDocumentType?: 'invoice' | 'expense' | 'credit-note'
+  relatedDocumentId?: string
 }
 
 export interface AccountBalance {
@@ -56,6 +60,99 @@ export interface MonthlyIncome {
 export interface BalanceOpening {
   conto: string
   saldo: number
+}
+
+export function buildInvoiceAccountingPosting(invoice: IssuedInvoice): LedgerMovement[] {
+  const { totali, conti, numero, cliente } = invoice
+  const reverseCharge = ['TD16', 'TD17', 'TD18', 'TD19'].includes(invoice.documentType)
+  const description = `${reverseCharge ? 'Autofattura' : invoice.documentType === 'TD04' ? 'Nota di credito' : 'Fattura'} ${numero} - ${cliente.ragioneSociale}`.slice(0, 200)
+
+  if (reverseCharge) {
+    const flat = (invoice.regimeFiscale ?? 'RF01') === 'RF19'
+    const costByAccount = new Map<string, number>()
+    invoice.linee.forEach((line) => {
+      const account = line.costAccount || invoice.costAccount || conti.costi || 'Costi per acquisti'
+      const amount = toCents(line.quantita * line.prezzoUnitario)
+      costByAccount.set(account, (costByAccount.get(account) ?? 0) + amount)
+    })
+    if (flat && totali.iva > 0) {
+      const account = invoice.costAccount || conti.costi || 'Costi per acquisti'
+      costByAccount.set(account, (costByAccount.get(account) ?? 0) + toCents(totali.iva))
+    }
+
+    return [
+      ...[...costByAccount.entries()].map(([conto, amount]) => ({
+        conto,
+        descrizione: description,
+        gestione: conti.gestione,
+        dare: fromCents(amount),
+        avere: 0,
+      })),
+      ...(totali.iva > 0 && !flat
+        ? [{ conto: conti.ivaCredito || 'IVA a credito', descrizione: description, gestione: '', dare: totali.iva, avere: 0 }]
+        : []),
+      ...(totali.imponibile > 0
+        ? [{ conto: conti.fornitori || 'Debiti v/fornitori', descrizione: description, gestione: '', dare: 0, avere: totali.imponibile }]
+        : []),
+      ...(totali.iva > 0
+        ? [{
+          conto: flat ? conti.ivaAutofatture || 'Debito IVA autofatture' : conti.iva,
+          descrizione: description,
+          gestione: '',
+          dare: 0,
+          avere: totali.iva,
+        }]
+        : []),
+    ]
+  }
+
+  const movements: LedgerMovement[] = [
+    {
+      conto: invoice.pagamento?.incassata ? conti.incassi || conti.clienti : conti.clienti,
+      descrizione: description,
+      gestione: '',
+      dare: totali.totale,
+      avere: 0,
+    },
+    ...(totali.ritenuta > 0 ? [{ conto: conti.ritenute, descrizione: description, gestione: '', dare: totali.ritenuta, avere: 0 }] : []),
+  ]
+  const revenueByAccount = new Map<string, number>()
+  invoice.linee.forEach((line) => {
+    const account = line.revenueAccount || invoice.revenueAccount || conti.ricavi
+    const amount = toCents(line.quantita * line.prezzoUnitario)
+    revenueByAccount.set(account, (revenueByAccount.get(account) ?? 0) + amount)
+  })
+  movements.push(...[...revenueByAccount.entries()].map(([conto, amount]) => ({
+    conto,
+    descrizione: description,
+    gestione: conti.gestione,
+    dare: 0,
+    avere: fromCents(amount),
+  })))
+  if (totali.cassa > 0) movements.push({ conto: conti.cassa, descrizione: description, gestione: conti.gestione, dare: 0, avere: totali.cassa })
+  if (totali.iva > 0) movements.push({ conto: conti.iva, descrizione: description, gestione: '', dare: 0, avere: totali.iva })
+  if (totali.bollo > 0) {
+    const stampDutyRecharged = totali.bolloRiaddebitato
+      ?? (invoice.bolloRiaddebitatoAlCliente || invoice.marcaDaBollo?.addebitata || false)
+    if (!stampDutyRecharged) {
+      movements.push({
+        conto: conti.costi || 'Imposte e tasse indirette',
+        descrizione: description,
+        gestione: conti.gestione,
+        dare: totali.bollo,
+        avere: 0,
+      })
+    }
+    movements.push({ conto: conti.bollo || 'Debiti per imposta di bollo', descrizione: description, gestione: '', dare: 0, avere: totali.bollo })
+  }
+  if (invoice.documentType === 'TD04') {
+    return movements.map((movement) => ({
+      ...movement,
+      dare: movement.avere,
+      avere: movement.dare,
+    }))
+  }
+  return movements
 }
 
 const toCents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)

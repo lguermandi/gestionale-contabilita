@@ -8,6 +8,14 @@ type Profile = 'private' | 'business'
 export interface CompanyProfile {
     ragioneSociale: string
     indirizzo: string
+    codiceAzienda?: string
+    posizioneInps?: string
+    patInail?: string
+    filiale?: string
+    unitaLocale?: string
+    centroDiCosto?: string
+    frontespizioIndirizzo?: boolean
+    payrollRounding?: 'cent' | 'euro'
     partitaIva: string
     codiceFiscale: string
     email: string
@@ -46,6 +54,14 @@ export interface CompanyProfile {
 export const defaultCompanyProfile: CompanyProfile = {
     ragioneSociale: '',
     indirizzo: '',
+    codiceAzienda: '',
+    posizioneInps: '',
+    patInail: '',
+    filiale: '',
+    unitaLocale: '',
+    centroDiCosto: '',
+    frontespizioIndirizzo: false,
+    payrollRounding: 'cent',
     partitaIva: '',
     codiceFiscale: '',
     email: '',

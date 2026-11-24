@@ -314,6 +314,27 @@ function savePayslipPdf_(token, payslipSource, pdfBase64, spreadsheetId) {
   }
 }
 
+function savePayrollAccountingPdf_(token, year, month, pdfBase64, spreadsheetId) {
+  requireSession_(token);
+  if (!spreadsheetId) throw new Error('Seleziona un’entità prima di salvare il prospetto contabile.');
+  const period = validatePayrollYearMonth_(year, month);
+  if (typeof pdfBase64 !== 'string' || pdfBase64.length < 100 || pdfBase64.length > 15000000) {
+    throw new Error('PDF del prospetto contabile non valido.');
+  }
+  const monthName = String(period.month).padStart(2, '0');
+  const fileName = 'Prospetto_Contabile_' + period.year + '-' + monthName + '.pdf';
+  const entityFolder = getPayrollEntityFolder_(spreadsheetId);
+  const yearFolder = findOrCreatePayrollSubfolder_(entityFolder, 'Cedolini');
+  const monthFolder = findOrCreatePayrollSubfolder_(yearFolder, String(period.year));
+  const finalFolder = findOrCreatePayrollSubfolder_(monthFolder, monthName);
+  const blob = Utilities.newBlob(Utilities.base64Decode(pdfBase64), 'application/pdf', fileName);
+  const existing = finalFolder.getFilesByName(fileName);
+  const fileExists = existing.hasNext();
+  const file = fileExists ? existing.next() : finalFolder.createFile(blob);
+  if (fileExists) file.setBlob(blob);
+  return { fileId: file.getId(), fileUrl: file.getUrl(), fileName: fileName };
+}
+
 function sendPayslipEmail_(token, payslipSource, pdfBase64, spreadsheetId) {
   requireSession_(token);
   if (!spreadsheetId) throw new Error('Seleziona un’entità prima di inviare il cedolino.');

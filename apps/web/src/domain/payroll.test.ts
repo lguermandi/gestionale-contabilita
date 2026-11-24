@@ -32,6 +32,18 @@ describe('dominio paghe', () => {
     expect(payslip.progressivi.tfrAccantonato).toBe(138.15)
     expect(payslip.netto).toBeGreaterThan(1_300)
     expect(payslip.costoAzienda).toBeGreaterThan(payslip.competenze)
+    expect(payslip.costoAzienda).toBe(2_738.15)
+    expect(payslip.arrotondamento).toBe(0)
+  })
+
+  it('arrotonda il netto all’euro e bilancia la relativa scrittura', () => {
+    const payslip = calculatePayslip(subordinate, 2026, 11, {}, { netRounding: 'euro' })
+    expect(Number.isInteger(payslip.netto)).toBe(true)
+    expect(payslip.arrotondamento).toBeCloseTo(payslip.netto - calculatePayslip(subordinate, 2026, 11).netto)
+    expect(validateTransaction({
+      data: '2026-11-30',
+      movimenti: buildPayrollIssuePosting(payslip, subordinate),
+    })).toEqual([])
   })
 
   it('applica aliquota apprendistato al 5,84%', () => {
@@ -79,6 +91,10 @@ describe('dominio paghe', () => {
     expect(payslip.inpsGestioneSeparata).toBe(269.76)
     expect(payslip.inpsGestioneSeparataDipendente).toBe(89.92)
     expect(payslip.inpsGestioneSeparataAzienda).toBe(179.84)
+    expect(validateTransaction({
+      data: '2026-11-30',
+      movimenti: buildPayrollIssuePosting(payslip, occasional),
+    })).toEqual([])
   })
 
   it('applica le fasce 5.000 e 15.000 ai collaboratori sportivi', () => {

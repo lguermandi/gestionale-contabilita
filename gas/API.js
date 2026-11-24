@@ -83,6 +83,8 @@ function doPost(event) {
       data = savePayslip_(payload.token, payload.payslip, payload.spreadsheetId);
     } else if (payload.action === 'savePayslipPdf') {
       data = savePayslipPdf_(payload.token, payload.payslip, payload.pdfBase64, payload.spreadsheetId);
+    } else if (payload.action === 'savePayrollAccountingPdf') {
+      data = savePayrollAccountingPdf_(payload.token, payload.anno, payload.mese, payload.pdfBase64, payload.spreadsheetId);
     } else if (payload.action === 'sendPayslipEmail') {
       data = sendPayslipEmail_(payload.token, payload.payslip, payload.pdfBase64, payload.spreadsheetId);
     } else {
@@ -100,6 +102,14 @@ function doPost(event) {
 const COMPANY_PROFILE_FIELDS_ = [
   'ragioneSociale',
   'indirizzo',
+  'codiceAzienda',
+  'posizioneInps',
+  'patInail',
+  'filiale',
+  'unitaLocale',
+  'centroDiCosto',
+  'frontespizioIndirizzo',
+  'payrollRounding',
   'partitaIva',
   'codiceFiscale',
   'email',
@@ -188,7 +198,8 @@ function getCompanyProfile_(token, spreadsheetId) {
   };
   COMPANY_PROFILE_FIELDS_.forEach(key => {
     const value = values[key] || '';
-    if (key === 'nuovaAttivita') profile[key] = value === 'true';
+    if (key === 'nuovaAttivita' || key === 'frontespizioIndirizzo') profile[key] = value === 'true';
+    else if (key === 'payrollRounding') profile[key] = value || 'cent';
     else if (key === 'attivitaAteco') {
       try {
         profile[key] = value ? JSON.parse(value) : [];
@@ -269,8 +280,17 @@ function normalizeCompanyProfile_(source) {
   };
   COMPANY_PROFILE_FIELDS_.forEach(key => {
     const value = source[key];
-    if (key === 'nuovaAttivita') {
+    if (key === 'nuovaAttivita' || key === 'frontespizioIndirizzo') {
       profile[key] = value === true ? 'true' : 'false';
+      return;
+    }
+    if (key === 'payrollRounding') {
+      profile[key] = value === undefined || value === '' ? 'cent' : value;
+      return;
+    }
+    if (['codiceAzienda', 'posizioneInps', 'patInail', 'filiale', 'unitaLocale', 'centroDiCosto'].includes(key)
+      && (value === undefined || value === null)) {
+      profile[key] = '';
       return;
     }
     if (key === 'attivitaAteco') {
@@ -319,6 +339,9 @@ function normalizeCompanyProfile_(source) {
   }
   if (![5, 15].includes(Number(profile.aliquotaForfettario))) {
     throw new Error('L’aliquota forfettaria deve essere 5% oppure 15%.');
+  }
+  if (!['cent', 'euro'].includes(profile.payrollRounding)) {
+    throw new Error('L’arrotondamento netto selezionato non è valido.');
   }
   [
     'coefficienteRedditivita',

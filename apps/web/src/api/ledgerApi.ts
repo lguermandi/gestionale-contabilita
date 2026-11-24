@@ -274,6 +274,7 @@ export function savePayrollAttendance(
 
 export function fetchPayslips(token: string, year: number, month: number, spreadsheetId: string) {
   return requestGas<PayslipResult[]>({ action: 'getPayslips', token, anno: year, mese: month, spreadsheetId })
+    .then((payslips) => payslips.map((payslip) => ({ ...payslip, arrotondamento: payslip.arrotondamento ?? 0 })))
 }
 
 export function savePayslip(token: string, payslip: PayslipResult & Record<string, unknown>, spreadsheetId: string) {
@@ -290,6 +291,23 @@ export function savePayslipPdf(
     action: 'savePayslipPdf',
     token,
     payslip,
+    pdfBase64,
+    spreadsheetId,
+  })
+}
+
+export function savePayrollAccountingPdf(
+  token: string,
+  year: number,
+  month: number,
+  pdfBase64: string,
+  spreadsheetId: string,
+) {
+  return requestGas<{ fileId: string; fileUrl: string; fileName: string }>({
+    action: 'savePayrollAccountingPdf',
+    token,
+    anno: year,
+    mese: month,
     pdfBase64,
     spreadsheetId,
   })

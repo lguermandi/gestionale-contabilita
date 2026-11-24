@@ -11,6 +11,12 @@ const inputClass = 'mt-1 min-h-10 w-full border border-stone-300 bg-white px-3 t
 const identityFields: Array<{ key: keyof Omit<CompanyProfile, 'conti'>; label: string; required?: boolean }> = [
   { key: 'ragioneSociale', label: 'Ragione sociale', required: true },
   { key: 'indirizzo', label: 'Indirizzo sede legale', required: true },
+  { key: 'codiceAzienda', label: 'Codice azienda' },
+  { key: 'posizioneInps', label: 'Posizione INPS' },
+  { key: 'patInail', label: 'PAT INAIL' },
+  { key: 'filiale', label: 'Filiale / dipendenza' },
+  { key: 'unitaLocale', label: 'Unità locale sede' },
+  { key: 'centroDiCosto', label: 'Centro di costo' },
   { key: 'partitaIva', label: 'Partita IVA', required: true },
   { key: 'codiceFiscale', label: 'Codice fiscale' },
   { key: 'cap', label: 'CAP', required: true },
@@ -351,6 +357,41 @@ export function CompanySettingsPage({ onRetryProfileLoad }: { onRetryProfileLoad
               </div>
             </div>
           )}
+        </section>
+
+        <section className="border border-stone-200 bg-white p-5">
+          <h2 className="font-semibold text-stone-900">Cedolini</h2>
+          <label className="block max-w-sm text-sm text-stone-700">
+            Arrotondamento netto
+            <select
+              className={inputClass}
+              value={profile.payrollRounding ?? 'cent'}
+              disabled={profileStatus !== 'ready' || savingProfile}
+              onChange={(event) => {
+                setSaved(false)
+                setProfile((current) => ({ ...current, payrollRounding: event.target.value as 'cent' | 'euro' }))
+              }}
+            >
+              <option value="cent">Ai centesimi</option>
+              <option value="euro">All’euro intero</option>
+            </select>
+          </label>
+          <label className="mt-3 flex items-start gap-3 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={profile.frontespizioIndirizzo ?? false}
+              disabled={profileStatus !== 'ready' || savingProfile}
+              onChange={(event) => {
+                setSaved(false)
+                setProfile((current) => ({ ...current, frontespizioIndirizzo: event.target.checked }))
+              }}
+            />
+            <span>
+              Includi pagina 1 frontespizio indirizzo (per stampa/busta finestrata)
+              <span className="mt-1 block text-xs text-stone-500">Disattivato per impostazione predefinita.</span>
+            </span>
+          </label>
         </section>
 
         <section className="border border-stone-200 bg-white p-5">

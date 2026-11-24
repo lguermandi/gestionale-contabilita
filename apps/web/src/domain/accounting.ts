@@ -226,12 +226,22 @@ export function buildPayrollIssuePosting(payslip: PayslipResult, worker: WorkerP
   if (payslip.workerType !== 'subordinate') {
     const compensation = payslip.competenze
     const isOccasional = payslip.workerType === 'occasional'
+    const rounding = payslip.arrotondamento ?? 0
     return [
       { conto: 'Compensi collaboratori', descrizione: description, gestione: 'Tipica', dare: compensation, avere: 0 },
+      ...(payslip.inpsGestioneSeparataAzienda > 0
+        ? [{ conto: 'Contributi INPS c/azienda', descrizione: description, gestione: 'Tipica', dare: payslip.inpsGestioneSeparataAzienda, avere: 0 }]
+        : []),
       { conto: 'Debiti v/collaboratori', descrizione: description, gestione: '', dare: 0, avere: payslip.netto },
-      { conto: isOccasional ? 'Erario c/ritenute 1040' : 'Erario c/ritenute sportivi', descrizione: description, gestione: '', dare: 0, avere: payslip.ritenutaAcconto + payslip.irpefSports },
+      { conto: isOccasional ? 'Erario c/ritenute 1040' : 'Erario c/ritenute sportivi', descrizione: description, gestione: '', dare: 0, avere: isOccasional ? payslip.ritenutaAcconto : payslip.irpefSports },
+      ...(payslip.marcaDaBollo > 0
+        ? [{ conto: 'Debiti per imposta di bollo', descrizione: description, gestione: '', dare: 0, avere: payslip.marcaDaBollo }]
+        : []),
       ...(payslip.inpsGestioneSeparata > 0
         ? [{ conto: 'Debiti v/INPS Gestione Separata', descrizione: description, gestione: '', dare: 0, avere: payslip.inpsGestioneSeparata }]
+        : []),
+      ...(rounding !== 0
+        ? [{ conto: 'Differenze arrotondamento paghe', descrizione: description, gestione: 'Tipica', dare: Math.max(0, rounding), avere: Math.max(0, -rounding) }]
         : []),
     ]
   }
@@ -243,6 +253,7 @@ export function buildPayrollIssuePosting(payslip: PayslipResult, worker: WorkerP
   const pensionTfr = payslip.pensionFundTfrContribution
   const pensionWorker = payslip.pensionFundWorkerContribution
   const pensionEmployer = payslip.pensionFundEmployerContribution
+  const rounding = payslip.arrotondamento ?? 0
   const employeeDebt = payslip.netto
   const employeeInps = payslip.inpsDipendente
   const taxDebt = payslip.irpefNetta + payslip.addizionaleRegionale + payslip.addizionaleComunale
@@ -260,6 +271,9 @@ export function buildPayrollIssuePosting(payslip: PayslipResult, worker: WorkerP
     ...(worker.tfrDestination === 'pension_fund'
       ? [{ conto: 'Debiti v/Fondo Pensione', descrizione: description, gestione: '', dare: 0, avere: pensionTfr + pensionWorker + pensionEmployer }]
       : [{ conto: 'Fondo TFR', descrizione: description, gestione: '', dare: 0, avere: tfr }]),
+    ...(rounding !== 0
+      ? [{ conto: 'Differenze arrotondamento paghe', descrizione: description, gestione: 'Tipica', dare: Math.max(0, rounding), avere: Math.max(0, -rounding) }]
+      : []),
   ].filter((movement) => movement.dare > 0 || movement.avere > 0)
 }
 

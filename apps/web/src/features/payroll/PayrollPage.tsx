@@ -7,6 +7,7 @@ import {
   savePayrollWorker,
   savePayslip,
   savePayslipPdf,
+  savePayrollAccountingPdf,
   saveTransaction,
   sendPayslipEmail,
 } from '../../api/ledgerApi'
@@ -18,6 +19,7 @@ import { useEntityStore } from '../../stores/entityStore'
 import { useGasSessionStore } from '../../stores/gasSessionStore'
 import { useProfileStore } from '../../stores/profileStore'
 import { downloadPayslipPdf, payslipPdfToBase64 } from './payslipPdf'
+import { downloadPayrollAccountingPdf, payrollAccountingPdfToBase64 } from './payrollAccountingPdf'
 
 type PayslipRecord = PayslipResult & Partial<WorkerProfile> & { status?: 'Bozza' | 'Emesso' | 'Contabilizzato' | 'Pagato'; linkedIssueTxId?: string; linkedPaymentTxId?: string }
 type AttendanceRecord = AttendanceInput & { id: string; workerId: string; year: number; month: number }
@@ -38,6 +40,7 @@ export function PayrollPage({ year }: { year: number }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [savingAccountingPdf, setSavingAccountingPdf] = useState(false)
   const [worker, setWorker] = useState<WorkerProfile>({
     id: '',
     workerType: 'subordinate',
@@ -117,6 +120,7 @@ export function PayrollPage({ year }: { year: number }) {
           .reduce((sum, entry) => sum + entry.competenze, 0)
         const result = calculatePayslip(item, year, month, record ?? {}, {
           annualCumulativeBefore: cumulative,
+          netRounding: company.payrollRounding ?? 'cent',
         })
         const enriched: PayslipRecord = {
           ...result,
@@ -140,7 +144,8 @@ export function PayrollPage({ year }: { year: number }) {
   async function downloadPayslip(payslip: PayslipRecord) {
     const item = workers.find((entry) => entry.id === payslip.workerId)
     if (!item) return
-    downloadPayslipPdf(payslip, item, company)
+    const record = attendance.find((entry) => entry.workerId === payslip.workerId)
+    downloadPayslipPdf(payslip, item, company, record ?? {})
   }
 
   async function savePdf(payslip: PayslipRecord) {
@@ -148,7 +153,8 @@ export function PayrollPage({ year }: { year: number }) {
     const item = workers.find((entry) => entry.id === payslip.workerId)
     if (!item) return
     try {
-      const base64 = payslipPdfToBase64(payslip, item, company)
+      const record = attendance.find((entry) => entry.workerId === payslip.workerId)
+      const base64 = payslipPdfToBase64(payslip, item, company, record ?? {})
       const result = await savePayslipPdf(token, { ...payslip, nome: item.nome, cognome: item.cognome }, base64, activeSpreadsheetId)
       setPayslips((current) => current.map((entry) => entry.id === payslip.id
         ? { ...entry, status: 'Emesso', driveFileId: result.fileId, driveFileUrl: result.fileUrl }
@@ -156,6 +162,32 @@ export function PayrollPage({ year }: { year: number }) {
       setMessage('Cedolino salvato su Drive.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Salvataggio PDF non riuscito.')
+    }
+  }
+
+  function downloadAccountingPdf() {
+    try {
+      downloadPayrollAccountingPdf(payslips, workers, company, year, month)
+      setError('')
+      setMessage('Prospetto contabile scaricato.')
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Creazione del prospetto contabile non riuscita.')
+    }
+  }
+
+  async function saveAccountingPdf() {
+    if (!token || !activeSpreadsheetId || !payslips.length) return
+    setSavingAccountingPdf(true)
+    setError('')
+    setMessage('')
+    try {
+      const base64 = payrollAccountingPdfToBase64(payslips, workers, company, year, month)
+      const result = await savePayrollAccountingPdf(token, year, month, base64, activeSpreadsheetId)
+      setMessage(`Prospetto contabile salvato su Drive: ${result.fileName}.`)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Salvataggio del prospetto contabile su Drive non riuscito.')
+    } finally {
+      setSavingAccountingPdf(false)
     }
   }
 
@@ -167,7 +199,8 @@ export function PayrollPage({ year }: { year: number }) {
       return
     }
     try {
-      const base64 = payslipPdfToBase64(payslip, item, company)
+      const record = attendance.find((entry) => entry.workerId === payslip.workerId)
+      const base64 = payslipPdfToBase64(payslip, item, company, record ?? {})
       await sendPayslipEmail(token, { ...payslip, nome: item.nome, cognome: item.cognome, email: item.email }, base64, activeSpreadsheetId)
       setMessage('Cedolino inviato via email.')
     } catch (emailError) {
@@ -221,7 +254,7 @@ export function PayrollPage({ year }: { year: number }) {
         await savePayslip(token, updated[index] as PayslipResult & Record<string, unknown>, activeSpreadsheetId)
       }
       updated.forEach((payslip) => {
-        amounts.irpef += payslip.irpefNetta
+        amounts.irpef += payslip.irpefNetta + payslip.irpefSports
         amounts.addizionali += payslip.addizionaleRegionale + payslip.addizionaleComunale
         amounts.ritenuta1040 += payslip.workerType === 'occasional' ? payslip.ritenutaAcconto : 0
         amounts.inpsDipendenti += payslip.inpsDipendente + payslip.inpsAzienda + payslip.inailAzienda
@@ -313,8 +346,43 @@ export function PayrollPage({ year }: { year: number }) {
             <label className="text-sm">Tipo<select className={inputClass} value={worker.workerType} onChange={(event) => setWorker({ ...worker, workerType: event.target.value as WorkerProfile['workerType'] })}><option value="subordinate">Subordinato</option><option value="occasional">Occasionale</option><option value="sports">Sportivo</option></select></label>
             <div className="grid grid-cols-2 gap-3"><label className="text-sm">Nome<input className={inputClass} value={worker.nome} onChange={(event) => setWorker({ ...worker, nome: event.target.value })} required /></label><label className="text-sm">Cognome<input className={inputClass} value={worker.cognome} onChange={(event) => setWorker({ ...worker, cognome: event.target.value })} required /></label></div>
             <label className="text-sm">Codice Fiscale<input className={inputClass} value={worker.codiceFiscale} onChange={(event) => setWorker({ ...worker, codiceFiscale: event.target.value })} required /></label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">Codice dipendente<input className={inputClass} value={worker.codiceDipendente || ''} onChange={(event) => setWorker({ ...worker, codiceDipendente: event.target.value })} /></label>
+              <label className="text-sm">Matricola<input className={inputClass} value={worker.matricola || ''} onChange={(event) => setWorker({ ...worker, matricola: event.target.value })} /></label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">Data di nascita<input type="date" className={inputClass} value={worker.dataNascita || ''} onChange={(event) => setWorker({ ...worker, dataNascita: event.target.value })} /></label>
+              <label className="text-sm">Data assunzione<input type="date" className={inputClass} value={worker.dataAssunzione || ''} onChange={(event) => setWorker({ ...worker, dataAssunzione: event.target.value })} /></label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">Data cessazione<input type="date" className={inputClass} value={worker.dataFineRapporto || ''} onChange={(event) => setWorker({ ...worker, dataFineRapporto: event.target.value })} /></label>
+              <label className="text-sm">Prossimo scatto<input type="date" className={inputClass} value={worker.prossimoScatto || ''} onChange={(event) => setWorker({ ...worker, prossimoScatto: event.target.value })} /></label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">Qualifica<input className={inputClass} value={worker.qualifica || ''} onChange={(event) => setWorker({ ...worker, qualifica: event.target.value })} /></label>
+              <label className="text-sm">Livello<input className={inputClass} value={worker.livello || ''} onChange={(event) => setWorker({ ...worker, livello: event.target.value })} /></label>
+            </div>
+            {worker.workerType === 'subordinate' && <label className="text-sm">Tipo contratto
+              <select className={inputClass} value={worker.contractType || 'Indeterminato'} onChange={(event) => setWorker({ ...worker, contractType: event.target.value as WorkerProfile['contractType'] })}>
+                <option value="Indeterminato">Tempo indeterminato</option>
+                <option value="Determinato">Tempo determinato</option>
+                <option value="Apprendistato">Apprendistato</option>
+              </select>
+            </label>}
+            <label className="text-sm">Indirizzo<input className={inputClass} value={worker.indirizzo || ''} onChange={(event) => setWorker({ ...worker, indirizzo: event.target.value })} /></label>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="text-sm">CAP<input className={inputClass} value={worker.cap || ''} onChange={(event) => setWorker({ ...worker, cap: event.target.value })} /></label>
+              <label className="text-sm">Comune<input className={inputClass} value={worker.comune || ''} onChange={(event) => setWorker({ ...worker, comune: event.target.value })} /></label>
+              <label className="text-sm">Provincia<input className={inputClass} value={worker.provincia || ''} onChange={(event) => setWorker({ ...worker, provincia: event.target.value })} maxLength={2} /></label>
+            </div>
             <label className="text-sm">Email<input type="email" className={inputClass} value={worker.email || ''} onChange={(event) => setWorker({ ...worker, email: event.target.value })} /></label>
             <label className="text-sm">IBAN<input className={inputClass} value={worker.iban || ''} onChange={(event) => setWorker({ ...worker, iban: event.target.value })} /></label>
+            <label className="text-sm">Nome banca<input className={inputClass} value={worker.nomeBanca || ''} onChange={(event) => setWorker({ ...worker, nomeBanca: event.target.value })} /></label>
+            {!worker.iban && <div className="grid grid-cols-3 gap-3">
+              <label className="text-sm">ABI<input className={inputClass} value={worker.abi || ''} onChange={(event) => setWorker({ ...worker, abi: event.target.value })} maxLength={5} /></label>
+              <label className="text-sm">CAB<input className={inputClass} value={worker.cab || ''} onChange={(event) => setWorker({ ...worker, cab: event.target.value })} maxLength={5} /></label>
+              <label className="text-sm">C/C<input className={inputClass} value={worker.contoCorrente || ''} onChange={(event) => setWorker({ ...worker, contoCorrente: event.target.value })} /></label>
+            </div>}
             {worker.workerType === 'subordinate' && <>
               <label className="text-sm">Paga base mensile<input type="number" min="0" step="0.01" className={inputClass} value={worker.pagaBaseMensile ?? ''} onChange={(event) => setWorker({ ...worker, pagaBaseMensile: Number(event.target.value) })} /></label>
               <div className="grid grid-cols-2 gap-3"><label className="text-sm">Mensilità<select className={inputClass} value={worker.mensilita} onChange={(event) => setWorker({ ...worker, mensilita: Number(event.target.value) as 13 | 14 })}><option value={13}>13</option><option value={14}>14</option></select></label><label className="text-sm">INPS dipendente %<input type="number" min="0" step="0.01" className={inputClass} value={worker.aliquotaInpsDipendente ?? 9.19} onChange={(event) => setWorker({ ...worker, aliquotaInpsDipendente: Number(event.target.value) })} /></label></div>
@@ -347,6 +415,8 @@ export function PayrollPage({ year }: { year: number }) {
           <div className="mb-4 flex flex-wrap gap-3">
             <button type="button" className="min-h-11 bg-emerald-800 px-4 text-sm font-semibold text-white" onClick={() => void generatePayslips()} disabled={!workers.length}>Genera / ricalcola cedolini</button>
             <button type="button" className="min-h-11 border border-emerald-800 px-4 text-sm font-semibold text-emerald-900" onClick={() => void closeMonth()} disabled={!payslips.length}>Contabilizza mese in Prima Nota e genera F24</button>
+            <button type="button" className="min-h-11 border border-stone-500 px-4 text-sm font-semibold text-stone-800" onClick={downloadAccountingPdf} disabled={!payslips.length}>Prospetto Contabile PDF (Uso Interno) · Scarica</button>
+            <button type="button" className="min-h-11 border border-stone-500 px-4 text-sm font-semibold text-stone-800" onClick={() => void saveAccountingPdf()} disabled={!payslips.length || !token || !activeSpreadsheetId || savingAccountingPdf}>{savingAccountingPdf ? 'Salvataggio…' : 'Prospetto Contabile PDF (Uso Interno) · Salva su Drive'}</button>
           </div>
           <div className="grid gap-4">
             {payslips.map((payslip) => (
@@ -358,8 +428,8 @@ export function PayrollPage({ year }: { year: number }) {
                 <p className="mt-3 text-sm text-stone-600">INPS {formatNumber(payslip.inpsDipendente + payslip.inpsAzienda + payslip.inailAzienda + payslip.inpsGestioneSeparata)} · IRPEF/ritenute {formatNumber(payslip.irpefNetta + payslip.ritenutaAcconto + payslip.irpefSports)} · TFR {formatNumber(payslip.tfrQuotaMese)} · Fondo pensione {formatNumber(payslip.progressivi.fondoPensioneAccantonato)}</p>
                 <div className="mt-4 border-t border-stone-100 pt-3 text-sm"><strong>Costo totale azienda:</strong> {formatNumber(payslip.costoAzienda)}</div>
                 <div className="mt-3 flex flex-wrap gap-3">
-                  <button type="button" className="text-emerald-800 underline" onClick={() => void downloadPayslip(payslip)}>Scarica PDF</button>
-                  <button type="button" className="text-emerald-800 underline" onClick={() => void savePdf(payslip)}>Salva su Drive</button>
+                  <button type="button" className="text-emerald-800 underline" onClick={() => void downloadPayslip(payslip)}>Cedolino PDF (Dipendente) · Scarica</button>
+                  <button type="button" className="text-emerald-800 underline" onClick={() => void savePdf(payslip)}>Cedolino PDF (Dipendente) · Salva su Drive</button>
                   {payslip.email && <button type="button" className="text-emerald-800 underline" onClick={() => void emailPayslip(payslip)}>Invia email</button>}
                   <button type="button" className="text-emerald-800 underline" disabled={Boolean(payslip.linkedPaymentTxId)} onClick={() => void registerPayment(payslip)}>{payslip.linkedPaymentTxId ? 'Bonifico registrato' : 'Registra bonifico'}</button>
                 </div>

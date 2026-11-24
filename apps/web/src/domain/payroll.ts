@@ -21,6 +21,19 @@ export interface WorkerProfile {
   nome: string
   cognome: string
   codiceFiscale: string
+  codiceDipendente?: string
+  matricola?: string
+  dataNascita?: string
+  prossimoScatto?: string
+  indirizzo?: string
+  cap?: string
+  comune?: string
+  provincia?: string
+  nomeBanca?: string
+  abi?: string
+  cab?: string
+  contoCorrente?: string
+  voceTariffaInail?: string
   iban?: string
   email?: string
   dataAssunzione?: string
@@ -131,6 +144,7 @@ export interface PayslipResult {
   pensionFundEmployerContribution: number
   pensionFundTfrContribution: number
   netto: number
+  arrotondamento: number
   costoAzienda: number
   progressivi: PayslipProgressivi
   annualCumulativeBefore: number
@@ -156,6 +170,7 @@ export interface PayslipCalculationOptions {
   fiscalConfig?: PayrollFiscalConfig
   annualCumulativeBefore?: number
   progressivi?: Partial<PayslipProgressivi>
+  netRounding?: 'cent' | 'euro'
 }
 
 export const DEFAULT_PAYROLL_CONFIG: PayrollFiscalConfig = {
@@ -180,6 +195,10 @@ const cents = (value: number) => Math.round((value + Number.EPSILON) * 100)
 const euros = (value: number) => Number((value / 100).toFixed(2))
 const roundEuro = (value: number) => euros(cents(value))
 const maxZero = (value: number) => Math.max(0, roundEuro(value))
+const roundNet = (value: number, mode: 'cent' | 'euro' = 'cent') => {
+  const netto = mode === 'euro' ? Math.round(value) : roundEuro(value)
+  return { netto, arrotondamento: roundEuro(netto - value) }
+}
 
 export function formatItalianNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat('it-IT', {
@@ -240,10 +259,11 @@ export function calculatePayslip(
     const withholdingRate = (profile.ritenutaAccontoPercent ?? 20) / 100
     const ritenuta = roundEuro(gross * withholdingRate)
     const marca = gross > (fiscalConfig.sogliaBollo ?? 77.47) ? (fiscalConfig.importoBollo ?? 2) : 0
-    const netto = roundEuro(gross - ritenuta - marca)
-    return buildBaseResult(profile, fiscalConfig.year, month, gross, gross, gross, netto, gross + gsEmployer, {
+    const netResult = roundNet(gross - ritenuta - marca - gsWorker, options.netRounding)
+    return buildBaseResult(profile, fiscalConfig.year, month, gross, gross, gross, netResult.netto, gross + gsEmployer + netResult.arrotondamento, {
       ritenutaAcconto: ritenuta,
       marcaDaBollo: marca,
+      arrotondamento: netResult.arrotondamento,
       inpsGestioneSeparata: gsTotal,
       inpsGestioneSeparataDipendente: gsWorker,
       inpsGestioneSeparataAzienda: gsEmployer,
@@ -274,10 +294,11 @@ export function calculatePayslip(
     const gsWorker = roundEuro(gsTotal / 3)
     const gsEmployer = roundEuro(gsTotal - gsWorker)
     const ritenuta = gross > (fiscalConfig.sogliaBollo ?? 77.47) ? (fiscalConfig.importoBollo ?? 2) : 0
-    const netto = roundEuro(gross - gsWorker - irpefSports - ritenuta)
-    return buildBaseResult(profile, fiscalConfig.year, month, gross, gross, gross, netto, gross + gsEmployer, {
+    const netResult = roundNet(gross - gsWorker - irpefSports - ritenuta, options.netRounding)
+    return buildBaseResult(profile, fiscalConfig.year, month, gross, gross, gross, netResult.netto, gross + gsEmployer + netResult.arrotondamento, {
       marcaDaBollo: ritenuta,
       ritenutaAcconto: irpefSports,
+      arrotondamento: netResult.arrotondamento,
       irpefSports,
       inpsGestioneSeparata: gsTotal,
       inpsGestioneSeparataDipendente: gsWorker,
@@ -331,8 +352,10 @@ export function calculatePayslip(
     ? roundEuro(competenze * (profile.contributoPensioneAziendaPercent ?? 0) / 100)
     : 0
   const pensionFundTfr = profile.tfrDestination === 'pension_fund' ? tfrQuotaMese : 0
-  const netto = roundEuro(competenze - inpsDipendente - irpefNetta - addizionaleRegionale - addizionaleComunale - pensionFundWorker)
-  const costoAzienda = roundEuro(competenze + inpsAzienda + inailAzienda + pensionFundEmployer + pensionFundTfr)
+  const netResult = roundNet(competenze - inpsDipendente - irpefNetta - addizionaleRegionale - addizionaleComunale - pensionFundWorker, options.netRounding)
+  const netto = netResult.netto
+  const tfrCompanyContribution = profile.tfrDestination === 'pension_fund' ? pensionFundTfr : tfrQuotaMese
+  const costoAzienda = roundEuro(competenze + inpsAzienda + inailAzienda + pensionFundEmployer + tfrCompanyContribution + netResult.arrotondamento)
 
   const feriePrevious = options.progressivi?.ferie ?? {
     ap: profile.ferieAp ?? 0,
@@ -381,6 +404,7 @@ export function calculatePayslip(
     pensionFundWorkerContribution: pensionFundWorker,
     pensionFundEmployerContribution: pensionFundEmployer,
     pensionFundTfrContribution: pensionFundTfr,
+    arrotondamento: netResult.arrotondamento,
     progressivi,
     details: {
       pagaBase,
@@ -447,6 +471,7 @@ function buildBaseResult(
     pensionFundEmployerContribution: overrides.pensionFundEmployerContribution ?? 0,
     pensionFundTfrContribution: overrides.pensionFundTfrContribution ?? 0,
     netto,
+    arrotondamento: overrides.arrotondamento ?? 0,
     costoAzienda,
     progressivi: overrides.progressivi ?? emptyProgressivi(),
     annualCumulativeBefore: overrides.annualCumulativeBefore ?? 0,
